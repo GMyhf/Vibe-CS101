@@ -2,9 +2,10 @@ import json
 import tempfile
 import unittest
 from pathlib import Path
+from unittest.mock import patch
 
 from vibe_cs101 import journal
-from vibe_cs101.tools import run_tool
+from vibe_cs101.tools import MAX_SECTION_CHARS, run_tool
 
 
 class ToolContextTests(unittest.TestCase):
@@ -30,6 +31,23 @@ class ToolContextTests(unittest.TestCase):
             result = json.loads(run_tool("review_mistakes", '{"view":"all"}', {"journal_db": db}))
 
             self.assertEqual([m["problem"] for m in result["mistakes"]], ["Bob problem"])
+
+    def test_read_section_truncates_long_content(self):
+        section = {
+            "section_id": 1,
+            "source": "test",
+            "course": "cs101",
+            "kind": "courseware",
+            "file": "x.md",
+            "title": "Long",
+            "content": "a" * (MAX_SECTION_CHARS + 10),
+        }
+        with patch("vibe_cs101.tools.store.get_section", return_value=section):
+            result = json.loads(run_tool("read_section", '{"section_id":1}'))
+
+        self.assertTrue(result["truncated"])
+        self.assertLess(len(result["content"]), MAX_SECTION_CHARS + 120)
+        self.assertIn("内容已截断", result["content"])
 
 
 if __name__ == "__main__":

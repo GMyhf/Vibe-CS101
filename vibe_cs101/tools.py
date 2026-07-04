@@ -7,6 +7,8 @@ import json
 from . import store
 from .config import LOCAL_SOURCES, REMOTE_SOURCES
 
+MAX_SECTION_CHARS = 6000
+
 TOOL_SCHEMAS = [
     {
         "type": "function",
@@ -146,6 +148,11 @@ def _tool_read(args: dict, context: dict) -> str:
     section = store.get_section(int(args["section_id"]))
     if not section:
         return json.dumps({"error": f"section_id {args['section_id']} 不存在"}, ensure_ascii=False)
+    content = section.get("content", "")
+    if len(content) > MAX_SECTION_CHARS:
+        section = dict(section)
+        section["content"] = content[:MAX_SECTION_CHARS] + "\n\n[内容已截断：只返回前 6000 字。需要更具体内容请重新检索更精确章节。]"
+        section["truncated"] = True
     return json.dumps(section, ensure_ascii=False)
 
 

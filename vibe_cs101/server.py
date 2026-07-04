@@ -79,6 +79,18 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _sse_start(self) -> None:
+        self.send_response(200)
+        self.send_header("Content-Type", "text/event-stream; charset=utf-8")
+        self.send_header("Cache-Control", "no-cache")
+        self.send_header("Connection", "keep-alive")
+        self.end_headers()
+
+    def _sse(self, obj: object) -> None:
+        body = json.dumps(obj, ensure_ascii=False)
+        self.wfile.write(f"data: {body}\n\n".encode("utf-8"))
+        self.wfile.flush()
+
     def _error(self, status: int, message: str) -> None:
         self._json({"error": message}, status)
 
@@ -221,6 +233,22 @@ class Handler(BaseHTTPRequestHandler):
                         self._json({"error": str(exc), "session_id": session_id}, 502)
                         return
                 self._json({"answer": answer, "events": events, "session_id": session_id})
+            elif url.path == "/api/chat/stream":
+                data = self._body()
+                message = str(data.get("message", "")).strip()
+                if not message:
+                    self._error(400, "message 不能为空")
+                    return
+                session_id, sess = _get_session(user, data.get("session_id"))
+                self._sse_start()
+                self._sse({"type": "session", "session_id": session_id})
+                with sess["lock"]:
+                    agent = sess["agent"]
+                    try:
+                        for event in agent.stream(message):
+                            self._sse(event)
+                    except Exception as exc:  # noqa: BLE001 - stream errors as events
+                        self._sse({"type": "error", "error": str(exc)})
             elif url.path == "/api/mistakes":
                 data = self._body()
                 m = journal.add_mistake(

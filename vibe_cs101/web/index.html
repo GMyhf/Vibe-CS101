@@ -40,13 +40,28 @@
   .grow { flex: 1; min-width: 180px; }
   /* chat */
   #chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
-  .msg { padding: 10px 14px; border-radius: 12px; max-width: 85%; white-space: pre-wrap;
+  .msg { padding: 10px 14px; border-radius: 12px; max-width: 85%;
          word-break: break-word; line-height: 1.55; }
   .msg.user { align-self: flex-end; background: var(--brand); color: #fff; }
   .msg.bot  { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
+  .msg.user { white-space: pre-wrap; }
+  .msg.bot > :first-child { margin-top: 0; }
+  .msg.bot > :last-child { margin-bottom: 0; }
+  .msg.bot h1, .msg.bot h2, .msg.bot h3 { line-height: 1.3; margin: 14px 0 8px; }
+  .msg.bot h1 { font-size: 22px; }
+  .msg.bot h2 { font-size: 18px; }
+  .msg.bot h3 { font-size: 16px; }
+  .msg.bot p { margin: 8px 0; }
+  .msg.bot ul, .msg.bot ol { margin: 8px 0; padding-left: 24px; }
+  .msg.bot li { margin: 3px 0; }
   .msg.bot code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
-  .msg.bot pre { background: var(--code-bg); padding: 10px; border-radius: 8px; overflow-x: auto; }
+  .msg.bot pre { background: var(--code-bg); padding: 10px; border-radius: 8px; overflow-x: auto; white-space: pre; }
   .msg.bot pre code { background: none; padding: 0; }
+  .msg.bot table { display: block; width: 100%; overflow-x: auto; margin: 10px 0;
+         border-collapse: collapse; font-size: 13px; }
+  .msg.bot th, .msg.bot td { border: 1px solid var(--border); padding: 6px 8px; }
+  .msg.bot th { background: var(--brand-soft); color: var(--ink); font-weight: 600; }
+  .msg.bot blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
   .events { font-size: 12px; color: var(--muted); margin: 2px 0 0 4px; }
   /* search results */
   .hit { padding: 10px 4px; border-bottom: 1px solid var(--border); }
@@ -271,13 +286,82 @@ async function init() {
 init();
 
 /* ---- chat ---- */
-const mdLite = t => {
-  let h = esc(t);
-  h = h.replace(/```(\w*)\n([\s\S]*?)```/g, (_, l, c) => `<pre><code>${c}</code></pre>`);
-  h = h.replace(/`([^`\n]+)`/g, '<code>$1</code>');
-  h = h.replace(/\*\*([^*\n]+)\*\*/g, '<b>$1</b>');
-  return h;
+const inlineMd = s => esc(s)
+  .replace(/`([^`\n]+)`/g, '<code>$1</code>')
+  .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
+  .replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+const isTableSep = line => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
+const tableCells = line => {
+  let t = line.trim();
+  if (t.startsWith('|')) t = t.slice(1);
+  if (t.endsWith('|')) t = t.slice(0, -1);
+  return t.split('|').map(c => c.trim());
 };
+function renderTable(lines) {
+  const head = tableCells(lines[0]);
+  const rows = lines.slice(2).map(tableCells);
+  return `<table><thead><tr>${head.map(c => `<th>${inlineMd(c)}</th>`).join('')}</tr></thead>` +
+    `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${inlineMd(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
+}
+function mdLite(text) {
+  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const out = [];
+  let para = [];
+  let list = null;
+  let code = null;
+  const flushPara = () => {
+    if (para.length) {
+      out.push(`<p>${inlineMd(para.join(' '))}</p>`);
+      para = [];
+    }
+  };
+  const flushList = () => {
+    if (list) {
+      out.push(`<${list.tag}>${list.items.map(i => `<li>${inlineMd(i)}</li>`).join('')}</${list.tag}>`);
+      list = null;
+    }
+  };
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i];
+    const fence = line.match(/^```/);
+    if (code) {
+      if (fence) {
+        out.push(`<pre><code>${esc(code.lines.join('\n'))}</code></pre>`);
+        code = null;
+      } else code.lines.push(line);
+      continue;
+    }
+    if (fence) { flushPara(); flushList(); code = {lines: []}; continue; }
+    if (line.trim() === '') { flushPara(); flushList(); continue; }
+    if (i + 1 < lines.length && line.includes('|') && isTableSep(lines[i + 1])) {
+      flushPara(); flushList();
+      const table = [line, lines[i + 1]];
+      i += 2;
+      while (i < lines.length && lines[i].includes('|') && lines[i].trim()) table.push(lines[i++]);
+      i -= 1;
+      out.push(renderTable(table));
+      continue;
+    }
+    const h = line.match(/^(#{1,3})\s+(.+)$/);
+    if (h) { flushPara(); flushList(); out.push(`<h${h[1].length}>${inlineMd(h[2])}</h${h[1].length}>`); continue; }
+    const ul = line.match(/^\s*[-*]\s+(.+)$/);
+    const ol = line.match(/^\s*\d+[.)]\s+(.+)$/);
+    if (ul || ol) {
+      flushPara();
+      const tag = ul ? 'ul' : 'ol';
+      if (!list || list.tag !== tag) flushList();
+      if (!list) list = {tag, items: []};
+      list.items.push((ul || ol)[1]);
+      continue;
+    }
+    const bq = line.match(/^>\s*(.+)$/);
+    if (bq) { flushPara(); flushList(); out.push(`<blockquote>${inlineMd(bq[1])}</blockquote>`); continue; }
+    para.push(line.trim());
+  }
+  if (code) out.push(`<pre><code>${esc(code.lines.join('\n'))}</code></pre>`);
+  flushPara(); flushList();
+  return out.join('');
+}
 function addMsg(cls, html) {
   const div = document.createElement('div');
   div.className = `msg ${cls}`;
@@ -292,19 +376,59 @@ async function sendChat() {
   if (!message) return;
   input.value = ''; btn.disabled = true;
   addMsg('user', esc(message));
-  const waiting = addMsg('bot', '思考中…');
-  try {
-    const d = await api('/api/chat', {method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({message, session_id: sessionId})});
-    sessionId = d.session_id;
-    waiting.innerHTML = mdLite(d.answer);
-    if (d.events?.length) {
+  const waiting = addMsg('bot', '<p class="muted">思考中…</p>');
+  const events = [];
+  let answer = '';
+  let lastRender = 0;
+  const render = (force = false) => {
+    const now = Date.now();
+    if (!force && now - lastRender < 80) return;
+    lastRender = now;
+    waiting.innerHTML = answer ? mdLite(answer) : '<p class="muted">检索资料中…</p>';
+    if (events.length) {
       const ev = document.createElement('div');
       ev.className = 'events';
-      ev.textContent = d.events.join('  ·  ');
+      ev.textContent = events.join('  ·  ');
       waiting.appendChild(ev);
     }
+    waiting.scrollIntoView({behavior: 'smooth', block: 'end'});
+  };
+  try {
+    const headers = {'Content-Type': 'application/json'};
+    if (authKey) headers.Authorization = `Bearer ${authKey}`;
+    const r = await fetch('/api/chat/stream', {method: 'POST', headers,
+      body: JSON.stringify({message, session_id: sessionId})});
+    if (r.status === 401) {
+      localStorage.removeItem(AUTH_STORE);
+      authKey = '';
+      showAuth('需要 API key');
+      throw new Error('需要 API key');
+    }
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${r.status}`);
+    }
+    const reader = r.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = '';
+    while (true) {
+      const {value, done} = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, {stream: true});
+      const parts = buf.split('\n\n');
+      buf = parts.pop();
+      for (const part of parts) {
+        const line = part.split('\n').find(x => x.startsWith('data: '));
+        if (!line) continue;
+        const evt = JSON.parse(line.slice(6));
+        if (evt.type === 'session') sessionId = evt.session_id;
+        else if (evt.type === 'event') { events.push(evt.text); render(true); }
+        else if (evt.type === 'chunk') { answer += evt.text; render(); }
+        else if (evt.type === 'error') throw new Error(evt.error || '流式响应失败');
+        else if (evt.type === 'done') render(true);
+      }
+    }
+    render(true);
   } catch (e) {
     waiting.innerHTML = `⚠️ ${esc(e.message)}`;
   } finally { btn.disabled = false; input.focus(); }

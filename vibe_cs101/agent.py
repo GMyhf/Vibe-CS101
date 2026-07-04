@@ -2,13 +2,16 @@
 
 from __future__ import annotations
 
+import json
+from collections.abc import Iterator
 from typing import Callable
 
 from .config import LLMConfig, load_llm_config
-from .llm import chat
+from .llm import chat, stream_chat
 from .tools import TOOL_SCHEMAS, run_tool
 
 MAX_ITERATIONS = 12
+MAX_READ_SECTION_CALLS = 3
 
 SYSTEM_PROMPT = """\
 你是 Vibe-cs101，一位个人计算机基础学习助教，服务于北大《计算概论B（cs101）》和\
@@ -46,10 +49,12 @@ class Agent:
         self.tool_context = tool_context or {}
         # Injectable for tests: same signature as llm.chat.
         self.chat_fn = chat
+        self.stream_chat_fn = stream_chat
 
     def ask(self, user_message: str) -> str:
         """Run one user turn through the tool loop; returns the final answer."""
         self.messages.append({"role": "user", "content": user_message})
+        read_section_calls = 0
 
         for _ in range(MAX_ITERATIONS):
             tools = TOOL_SCHEMAS if _ < MAX_ITERATIONS - 1 else None
@@ -69,7 +74,22 @@ class Agent:
                 name = fn.get("name", "")
                 args = fn.get("arguments", "") or "{}"
                 self.on_event(f"🔧 {name}({args[:120]})")
-                result = run_tool(name, args, self.tool_context)
+                if name == "read_section":
+                    read_section_calls += 1
+                    if read_section_calls > MAX_READ_SECTION_CALLS:
+                        result = json.dumps(
+                            {
+                                "error": (
+                                    "本轮最多读取 3 个章节。请基于已读取资料回答；"
+                                    "如需更多细节，请让用户缩小问题范围。"
+                                )
+                            },
+                            ensure_ascii=False,
+                        )
+                    else:
+                        result = run_tool(name, args, self.tool_context)
+                else:
+                    result = run_tool(name, args, self.tool_context)
                 self.messages.append(
                     {
                         "role": "tool",
@@ -79,3 +99,67 @@ class Agent:
                 )
 
         return "(达到最大工具调用轮数，未能完成回答)"
+
+    def stream(self, user_message: str) -> Iterator[dict]:
+        """Run the tool loop, then stream the final assistant answer as events."""
+        self.messages.append({"role": "user", "content": user_message})
+        read_section_calls = 0
+
+        for _ in range(MAX_ITERATIONS - 1):
+            msg = self.chat_fn(self.cfg, self.messages, tools=TOOL_SCHEMAS)
+            tool_calls = msg.get("tool_calls") or []
+
+            if not tool_calls:
+                answer = msg.get("content") or "(模型返回了空回答)"
+                self.messages.append({"role": "assistant", "content": answer})
+                yield {"type": "chunk", "text": answer}
+                yield {"type": "done"}
+                return
+
+            assistant_msg: dict = {"role": "assistant", "content": msg.get("content") or ""}
+            assistant_msg["tool_calls"] = tool_calls
+            self.messages.append(assistant_msg)
+
+            tool_names: list[str] = []
+            for call in tool_calls:
+                fn = call.get("function", {})
+                name = fn.get("name", "")
+                tool_names.append(name)
+                args = fn.get("arguments", "") or "{}"
+                event = f"🔧 {name}({args[:120]})"
+                self.on_event(event)
+                yield {"type": "event", "text": event}
+                if name == "read_section":
+                    read_section_calls += 1
+                    if read_section_calls > MAX_READ_SECTION_CALLS:
+                        result = json.dumps(
+                            {
+                                "error": (
+                                    "本轮最多读取 3 个章节。请基于已读取资料回答；"
+                                    "如需更多细节，请让用户缩小问题范围。"
+                                )
+                            },
+                            ensure_ascii=False,
+                        )
+                    else:
+                        result = run_tool(name, args, self.tool_context)
+                else:
+                    result = run_tool(name, args, self.tool_context)
+                self.messages.append(
+                    {
+                        "role": "tool",
+                        "tool_call_id": call.get("id", ""),
+                        "content": result,
+                    }
+                )
+            if any(name != "search_materials" for name in tool_names):
+                break
+
+        final_messages = self.messages
+        chunks: list[str] = []
+        for chunk in self.stream_chat_fn(self.cfg, final_messages):
+            chunks.append(chunk)
+            yield {"type": "chunk", "text": chunk}
+        answer = "".join(chunks) or "(达到最大工具调用轮数，未能完成回答)"
+        self.messages.append({"role": "assistant", "content": answer})
+        yield {"type": "done"}

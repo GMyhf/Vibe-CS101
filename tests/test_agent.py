@@ -63,6 +63,22 @@ class AgentLoopTests(unittest.TestCase):
         roles = [m["role"] for m in calls[1]["messages"]]
         self.assertEqual(roles, ["system", "user", "assistant", "user"])
 
+    def test_read_section_calls_are_limited_per_turn(self):
+        tool_calls = [
+            {"id": f"c{i}", "function": {"name": "read_section", "arguments": '{"section_id": 1}'}}
+            for i in range(4)
+        ]
+        agent, _calls = make_agent(
+            [
+                {"content": "", "tool_calls": tool_calls},
+                {"content": "ok", "tool_calls": None},
+            ]
+        )
+        agent.ask("x")
+        tool_msgs = [m for m in agent.messages if m["role"] == "tool"]
+        self.assertEqual(len(tool_msgs), 4)
+        self.assertIn("本轮最多读取 3 个章节", tool_msgs[-1]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()
