@@ -171,6 +171,7 @@
   <nav>
     <button data-tab="chat" class="active">💬 对话</button>
     <button data-tab="search">🔍 检索</button>
+    <button data-tab="library">📚 知识库</button>
     <button data-tab="mistakes">📌 错题本</button>
     <button data-tab="stats">📈 学习进度</button>
   </nav>
@@ -216,6 +217,19 @@
       </div>
     </div>
     <div class="card" id="search-results"><p class="muted">离线全文检索，无需 API key。</p></div>
+  </div></div>
+</section>
+
+<section id="panel-library" class="panel">
+  <div class="panel-pad"><div class="inner">
+    <div class="card">
+      <div class="row">
+        <input id="lib-filter" class="grow" placeholder="按文件名过滤，如：dp / cheatsheet / week01">
+        <button id="lib-refresh" class="ghost">刷新</button>
+      </div>
+      <p class="muted" style="margin-bottom:0">老师的原始课件与题解文件，可在线查看或下载。</p>
+    </div>
+    <div id="lib-sources"><p class="muted">加载中…</p></div>
   </div></div>
 </section>
 
@@ -352,6 +366,7 @@ document.querySelectorAll('aside nav button').forEach(b => b.onclick = () => {
   $(`#panel-${b.dataset.tab}`).classList.add('active');
   if (b.dataset.tab === 'mistakes') loadMistakes();
   if (b.dataset.tab === 'stats') loadStats();
+  if (b.dataset.tab === 'library' && !libLoaded) loadLibrary();
 });
 function showChatTab() {
   document.querySelectorAll('aside nav button').forEach(x =>
@@ -642,7 +657,8 @@ async function sendChat() {
     const reader = r.body.getReader();
     const decoder = new TextDecoder();
     let buf = '';
-    while (true) {
+    let finished = false;
+    while (!finished) {
       const {value, done} = await reader.read();
       if (done) break;
       buf += decoder.decode(value, {stream: true});
@@ -656,8 +672,10 @@ async function sendChat() {
         else if (evt.type === 'event') { events.push(evt.text); render(true); }
         else if (evt.type === 'chunk') { answer += evt.text; render(); }
         else if (evt.type === 'error') throw new Error(evt.error || '流式响应失败');
+        else if (evt.type === 'done') { finished = true; break; }  // 不等连接关闭，立即收尾
       }
     }
+    reader.cancel().catch(() => {});
     const seconds = ((performance.now() - t0) / 1000).toFixed(1);
     waiting.querySelector('.events')?.remove();
     finishBotMsg(waiting, answer || '(空回答)', seconds, events);
@@ -704,6 +722,83 @@ async function openSection(id) {
     $('#section-meta').textContent = `${s.source} / ${s.course} / ${s.file} · #${s.section_id}`;
     $('#section-view pre').textContent = s.content;
     $('#section-dialog').showModal();
+  } catch (e) { alert(e.message); }
+}
+
+/* ---- library（知识库：原始课件/题解浏览下载） ---- */
+let libLoaded = false;
+let libData = [];
+const TEXT_EXTS = ['md', 'py', 'cpp', 'c', 'h', 'txt', 'csv'];
+const VIEW_EXTS = [...TEXT_EXTS, 'pdf', 'png', 'jpg', 'jpeg', 'gif'];
+const fmtSize = n => n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(0)}KB` : `${(n / 1048576).toFixed(1)}MB`;
+async function loadLibrary() {
+  const box = $('#lib-sources');
+  box.innerHTML = '<p class="muted">加载中…</p>';
+  try {
+    const d = await api('/api/library');
+    libData = d.sources;
+    libLoaded = true;
+    renderLibrary();
+  } catch (e) { box.innerHTML = `<p class="muted">⚠️ ${esc(e.message)}</p>`; }
+}
+function renderLibrary() {
+  const filter = $('#lib-filter').value.trim().toLowerCase();
+  const box = $('#lib-sources');
+  if (!libData.length) { box.innerHTML = '<p class="muted">（无资料目录：课件仓库不在本机，或还未运行 update 下载题解）</p>'; return; }
+  box.innerHTML = libData.map(src => {
+    const files = src.files.filter(f => !filter || f.path.toLowerCase().includes(filter));
+    if (filter && !files.length) return '';
+    const rows = files.slice(0, 200).map(f => {
+      const ext = f.path.split('.').pop().toLowerCase();
+      const view = VIEW_EXTS.includes(ext)
+        ? `<button class="ghost" data-act="view" data-src="${esc(src.name)}" data-path="${esc(f.path)}">查看</button>` : '';
+      return `<tr><td style="word-break:break-all">${esc(f.path)}</td>
+        <td class="muted" style="white-space:nowrap">${fmtSize(f.size)}</td>
+        <td class="row" style="flex-wrap:nowrap">${view}
+          <button class="ghost" data-act="dl" data-src="${esc(src.name)}" data-path="${esc(f.path)}">下载</button>
+        </td></tr>`;
+    }).join('');
+    const more = files.length > 200 ? `<p class="muted">仅显示前 200 个，共 ${files.length} 个（可用过滤缩小范围）</p>` : '';
+    return `<div class="card"><h3 style="margin-top:0">${esc(src.title)} <span class="muted" style="font-weight:400;font-size:13px">（${files.length} 个文件）</span></h3>
+      <table><tbody>${rows}</tbody></table>${more}</div>`;
+  }).join('') || '<p class="muted">无匹配文件</p>';
+  box.querySelectorAll('button').forEach(b => b.onclick = () => {
+    if (b.dataset.act === 'view') viewLibFile(b.dataset.src, b.dataset.path);
+    else downloadLibFile(b.dataset.src, b.dataset.path);
+  });
+}
+$('#lib-filter').addEventListener('input', () => { if (libLoaded) renderLibrary(); });
+$('#lib-refresh').onclick = loadLibrary;
+const libFileUrl = (src, path, dl) =>
+  `/api/library/file?source=${encodeURIComponent(src)}&path=${encodeURIComponent(path)}${dl ? '&download=1' : ''}`;
+async function viewLibFile(src, path) {
+  try {
+    const ext = path.split('.').pop().toLowerCase();
+    if (!TEXT_EXTS.includes(ext)) {
+      window.open(libFileUrl(src, path, false), '_blank', 'noopener');
+      return;
+    }
+    const headers = authKey ? {Authorization: `Bearer ${authKey}`} : {};
+    const r = await fetch(libFileUrl(src, path, false), {headers});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const text = await r.text();
+    $('#section-title').textContent = path.split('/').pop();
+    $('#section-meta').textContent = `${src} / ${path}`;
+    $('#section-view pre').textContent = text;
+    $('#section-dialog').showModal();
+  } catch (e) { alert(e.message); }
+}
+async function downloadLibFile(src, path) {
+  try {
+    const headers = authKey ? {Authorization: `Bearer ${authKey}`} : {};
+    const r = await fetch(libFileUrl(src, path, true), {headers});
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = path.split('/').pop();
+    a.click();
+    URL.revokeObjectURL(a.href);
   } catch (e) { alert(e.message); }
 }
 

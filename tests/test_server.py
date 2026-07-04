@@ -262,6 +262,57 @@ class ServerTests(unittest.TestCase):
         # 正确的 key 也被同 IP 的失败限流挡住，直到窗口过期——这是防暴力破解的预期行为
         self.assertEqual(self.request("/api/me", key="alice-key")[0], 429)
 
+    def test_stream_response_terminates(self):
+        # SSE 流结束后必须关闭连接，否则前端 fetch 永远等不到 EOF（发送按钮卡死）
+        session_id, sess = server._get_session("owner", None)
+        sess["agent"].chat_fn = lambda cfg, messages, tools=None, temperature=0.3: {
+            "content": "答案", "tool_calls": None,
+        }
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/chat/stream",
+            method="POST",
+            data=json.dumps({"message": "q", "session_id": session_id}).encode(),
+            headers={"Content-Type": "application/json"},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:  # 未关连接会超时
+            body = resp.read().decode()
+        self.assertIn('"type": "done"', body.replace('"type":"done"', '"type": "done"'))
+
+    def _lib_root(self):
+        root = Path(self._tmp.name) / "lib"
+        (root / "sub").mkdir(parents=True, exist_ok=True)
+        (root / "a.md").write_text("# hello", encoding="utf-8")
+        (root / "sub" / "b.py").write_text("print(1)", encoding="utf-8")
+        (root / "secret.env").write_text("KEY=1", encoding="utf-8")  # 扩展名不在白名单
+        (root / ".hidden").mkdir(exist_ok=True)
+        (root / ".hidden" / "c.md").write_text("x", encoding="utf-8")
+        return root
+
+    def test_library_list_and_fetch(self):
+        root = self._lib_root()
+        with patch("vibe_cs101.server._library_roots", return_value={"course": ("课件", root)}):
+            status, data = self.request("/api/library")
+            self.assertEqual(status, 200)
+            self.assertEqual(
+                [f["path"] for f in data["sources"][0]["files"]], ["a.md", "sub/b.py"]
+            )
+
+            req = urllib.request.Request(
+                f"http://127.0.0.1:{self.port}/api/library/file?source=course&path=a.md&download=1"
+            )
+            with urllib.request.urlopen(req) as resp:
+                self.assertEqual(resp.read().decode(), "# hello")
+                self.assertIn("attachment", resp.headers.get("Content-Disposition", ""))
+
+    def test_library_blocks_traversal_and_unknown(self):
+        root = self._lib_root()
+        with patch("vibe_cs101.server._library_roots", return_value={"course": ("课件", root)}):
+            for path in ("../outside.md", "..%2F..%2Fetc%2Fpasswd", "secret.env", ".hidden/c.md"):
+                status, _ = self.request(f"/api/library/file?source=course&path={path}")
+                self.assertEqual(status, 404, path)
+            status, _ = self.request("/api/library/file?source=nope&path=a.md")
+            self.assertEqual(status, 404)
+
     def test_remote_serve_requires_auth_key(self):
         with patch("vibe_cs101.server.load_auth_keys", return_value={}):
             with self.assertRaises(SystemExit):

@@ -12,6 +12,8 @@ API:
     GET  /api/sessions                 会话列表（持久化于 data/sessions.db）
     GET  /api/sessions/{id}            会话历史消息（前端可展示部分）
     DELETE /api/sessions/{id}          删除会话
+    GET  /api/library                  知识库：原始课件/题解文件列表
+    GET  /api/library/file?source=&path=[&download=1]   查看/下载原始文件
     GET  /api/mistakes?view=all|due    错题列表
     POST /api/mistakes                 记错题 {problem, course?, tags?, reason?, note?, section_id?}
     POST /api/mistakes/{id}/review     {result: good|again}
@@ -37,11 +39,64 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import journal, ratelimit, sessions, store, users
-from .config import DB_PATH, load_auth_keys, load_llm_config
+from .config import DB_PATH, LOCAL_SOURCES, ORIGINAL_DIR, load_auth_keys, load_llm_config
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_BODY = 1 << 20  # 1MB
 MAX_SESSIONS = 50  # 内存中的活跃会话上限；被挤出的会话可随时从 sessions.db 恢复
+
+# 知识库：可浏览/下载的原始资料文件类型与单来源文件数上限
+LIB_EXTS = {".md", ".pdf", ".py", ".cpp", ".c", ".h", ".txt", ".ipynb",
+            ".zip", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".pptx", ".docx", ".xlsx"}
+LIB_TEXT_EXTS = {".md", ".py", ".cpp", ".c", ".h", ".txt", ".csv"}
+LIB_MAX_FILES = 800
+
+
+def _library_roots() -> dict[str, tuple[str, Path]]:
+    """知识库根目录：本地课件仓库 + 已下载的上游题解原文。"""
+    roots: dict[str, tuple[str, Path]] = {}
+    for src in LOCAL_SOURCES:
+        if src.path.is_dir():
+            roots[src.name] = (src.title, src.path)
+    if ORIGINAL_DIR.is_dir():
+        roots["solutions"] = ("题解原文（上游长 Markdown）", ORIGINAL_DIR)
+    return roots
+
+
+def _library_files(root: Path) -> list[dict]:
+    root = root.resolve()
+    files = []
+    for p in sorted(root.rglob("*")):
+        if len(files) >= LIB_MAX_FILES:
+            break
+        if not p.is_file() or p.suffix.lower() not in LIB_EXTS:
+            continue
+        try:
+            p.resolve().relative_to(root)
+        except (ValueError, OSError):
+            continue
+        rel = p.relative_to(root)
+        if any(part.startswith(".") for part in rel.parts):
+            continue
+        files.append({"path": str(rel), "size": p.stat().st_size})
+    return files
+
+
+def _resolve_library_file(source: str, rel_path: str) -> Path | None:
+    roots = _library_roots()
+    if source not in roots:
+        return None
+    root = roots[source][1].resolve()
+    try:
+        file = (root / rel_path).resolve()
+        file.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    if not file.is_file() or file.suffix.lower() not in LIB_EXTS:
+        return None
+    if any(part.startswith(".") for part in file.relative_to(root).parts):
+        return None
+    return file
 
 AUTH_KEYS: dict[str, str] = {}  # {username: key}; 来自环境变量；DB 用户见 users.py
 
@@ -100,8 +155,11 @@ class Handler(BaseHTTPRequestHandler):
         self.send_response(200)
         self.send_header("Content-Type", "text/event-stream; charset=utf-8")
         self.send_header("Cache-Control", "no-cache")
-        self.send_header("Connection", "keep-alive")
+        # SSE 没有 Content-Length，必须以关闭连接标记流结束，
+        # 否则浏览器端 fetch 永远等不到 EOF，发送按钮一直禁用
+        self.send_header("Connection", "close")
         self.end_headers()
+        self.close_connection = True
 
     def _sse(self, obj: object) -> None:
         body = json.dumps(obj, ensure_ascii=False)
@@ -237,6 +295,44 @@ class Handler(BaseHTTPRequestHandler):
             elif m := re.fullmatch(r"/api/section/(\d+)", url.path):
                 section = store.get_section(int(m.group(1)))
                 self._json(section) if section else self._error(404, "section not found")
+            elif url.path == "/api/library":
+                self._json(
+                    {
+                        "sources": [
+                            {
+                                "name": name,
+                                "title": title,
+                                "files": _library_files(root),
+                            }
+                            for name, (title, root) in _library_roots().items()
+                        ]
+                    }
+                )
+            elif url.path == "/api/library/file":
+                source = q.get("source", [""])[0]
+                rel_path = q.get("path", [""])[0]
+                file = _resolve_library_file(source, rel_path)
+                if file is None:
+                    self._error(404, "file not found")
+                    return
+                import mimetypes
+
+                ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
+                if file.suffix.lower() in LIB_TEXT_EXTS:
+                    ctype = "text/plain; charset=utf-8"
+                body = file.read_bytes()
+                self.send_response(200)
+                self.send_header("Content-Type", ctype)
+                self.send_header("Content-Length", str(len(body)))
+                if q.get("download", [""])[0]:
+                    from urllib.parse import quote
+
+                    self.send_header(
+                        "Content-Disposition",
+                        f"attachment; filename*=UTF-8''{quote(file.name)}",
+                    )
+                self.end_headers()
+                self.wfile.write(body)
             elif url.path == "/api/sessions":
                 self._json({"sessions": sessions.list_sessions(user)})
             elif m := re.fullmatch(r"/api/sessions/([A-Za-z0-9-]{1,64})", url.path):
@@ -306,14 +402,19 @@ class Handler(BaseHTTPRequestHandler):
                 self._sse({"type": "session", "session_id": session_id})
                 with sess["lock"]:
                     agent = sess["agent"]
+                    saved = False
                     try:
                         for event in agent.stream(message):
+                            if isinstance(event, dict) and event.get("type") == "done":
+                                sessions.save(user, session_id, agent.messages)
+                                saved = True
                             self._sse(event)
                     except Exception as exc:  # noqa: BLE001 - stream errors as events
                         self._sse({"type": "error", "error": str(exc)})
                     else:
                         # 出错的轮次不落盘：消息尾部可能残留未完成的 tool_calls
-                        sessions.save(user, session_id, agent.messages)
+                        if not saved:
+                            sessions.save(user, session_id, agent.messages)
             elif url.path == "/api/mistakes":
                 data = self._body()
                 m = journal.add_mistake(
