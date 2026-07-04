@@ -1,7 +1,25 @@
 import unittest
 
 from vibe_cs101.config import LLMConfig
-from vibe_cs101.llm import _format_http_error
+from vibe_cs101.llm import LLMError, _format_http_error, _stream_chunk_content
+
+
+class StreamChunkTests(unittest.TestCase):
+    def test_normal_delta_content(self):
+        data = '{"choices":[{"delta":{"content":"你好"}}]}'
+        self.assertEqual(_stream_chunk_content(data), "你好")
+
+    def test_empty_choices_usage_chunk_is_skipped(self):
+        data = '{"object":"chat.completion.chunk","choices":[],"usage":{"total_tokens":3098}}'
+        self.assertIsNone(_stream_chunk_content(data))
+
+    def test_delta_without_content(self):
+        data = '{"choices":[{"delta":{"role":"assistant"}}]}'
+        self.assertIsNone(_stream_chunk_content(data))
+
+    def test_invalid_json_raises(self):
+        with self.assertRaises(LLMError):
+            _stream_chunk_content("not json")
 
 
 class LLMErrorFormattingTests(unittest.TestCase):

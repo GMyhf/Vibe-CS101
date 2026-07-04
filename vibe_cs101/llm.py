@@ -33,6 +33,23 @@ def _format_http_error(cfg: LLMConfig, code: int, body: str) -> str:
     return msg
 
 
+def _stream_chunk_content(data: str) -> str | None:
+    """Extract delta text from one SSE data payload.
+
+    部分网关会发送 choices 为空的 chunk（如流末尾的 usage 统计块），跳过即可。
+    """
+    try:
+        event = json.loads(data)
+    except json.JSONDecodeError as exc:
+        raise LLMError(f"Unexpected LLM stream chunk: {data[:500]}") from exc
+    if not isinstance(event, dict):
+        raise LLMError(f"Unexpected LLM stream chunk: {data[:500]}")
+    choices = event.get("choices") or []
+    if not choices:
+        return None
+    return choices[0].get("delta", {}).get("content")
+
+
 def chat(
     cfg: LLMConfig,
     messages: list[dict],
@@ -113,12 +130,7 @@ def stream_chat(
                 data = line[5:].strip()
                 if data == "[DONE]":
                     break
-                try:
-                    event = json.loads(data)
-                    delta = event["choices"][0].get("delta", {})
-                except (json.JSONDecodeError, KeyError, IndexError) as exc:
-                    raise LLMError(f"Unexpected LLM stream chunk: {data[:500]}") from exc
-                content = delta.get("content")
+                content = _stream_chunk_content(data)
                 if content:
                     yield content
     except urllib.error.HTTPError as exc:
