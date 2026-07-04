@@ -14,7 +14,11 @@ class McpServerTests(unittest.TestCase):
     def test_tools_list(self):
         resp = _handle({"jsonrpc": "2.0", "id": 2, "method": "tools/list"})
         names = {t["name"] for t in resp["result"]["tools"]}
-        self.assertEqual(names, {"search_materials", "read_section", "list_sources"})
+        self.assertEqual(
+            names,
+            {"search_materials", "read_section", "list_sources",
+             "record_mistake", "review_mistakes", "mark_reviewed"},
+        )
         for tool in resp["result"]["tools"]:
             self.assertIn("inputSchema", tool)
 

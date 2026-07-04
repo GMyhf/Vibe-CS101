@@ -43,6 +43,15 @@ cp .env.example .env                     # 填入 API key
 python3 -m vibe_cs101 ask "什么是单调栈？给个例题"
 python3 -m vibe_cs101 chat              # 交互式多轮对话
 python3 -m vibe_cs101 info              # 查看配置与索引状态
+
+# 6. Web UI（对话 / 检索 / 错题本 / 学习进度，四合一）
+python3 -m vibe_cs101 serve             # http://127.0.0.1:8101
+
+# 7. 错题本（也可以直接在对话里说“我做错了某题”，智能体会帮你记）
+python3 -m vibe_cs101 mistake add "OpenJudge 26977 接雨水" --course cs101 --tags "单调栈" --reason "边界写错"
+python3 -m vibe_cs101 mistake due       # 今日待复习
+python3 -m vibe_cs101 mistake review 1 good   # 记录复习结果（good/again）
+python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 ```
 
 也可 `pip install -e .` 后直接使用 `vibe-cs101` 命令。
@@ -66,6 +75,13 @@ python3 -m vibe_cs101 info              # 查看配置与索引状态
 - **检索** `store.py`：BM25 排序（标题加权），snippet 高亮，course/source 过滤
 - **智能体** `agent.py` + `tools.py` + `llm.py`：OpenAI 兼容 chat/completions
   工具调用循环，最多 12 轮；最后一轮撤下工具强制给出文字回答
+- **错题本** `journal.py`：参照 Vibe-Trading Shadow Account 思路——从做题记录里
+  找出"你在哪里丢分"。间隔复习（1/3/7/14/30 天，全过 → 已掌握），按标签/课程
+  统计薄弱知识点。智能体可在对话中直接记错题、带你复习（存于 `data/journal.db`）
+- **Web UI** `server.py` + `web/`：架构参照 Vibe-Trading（后端 REST API + 单页
+  前端），但保持零依赖：标准库 ThreadingHTTPServer + 无构建的原生 JS 单页应用。
+  四个页面：💬 对话（多轮会话）、🔍 检索、📌 错题本、📈 学习进度。默认只监听
+  127.0.0.1，仅供本机使用
 
 ## 配置
 
@@ -98,5 +114,6 @@ python3 -m unittest discover -s tests        # 纯标准库，无需安装任何
 - [x] 定时自动 update + index（GitHub Actions 每周一重建，索引发布在
       [data-latest release](https://github.com/GMyhf/Vibe-CS101/releases/tag/data-latest)，
       下载 `index.db` 放到 `data/` 即可跳过 update/index 步骤）
-- [ ] Web UI（参照 Vibe-Trading 的 FastAPI + React 架构）
-- [ ] 错题本 / 学习进度跟踪（参照 Vibe-Trading 的 Shadow Account 思路）
+- [x] Web UI（参照 Vibe-Trading 后端 API + 单页前端架构，零依赖实现：`serve` 命令）
+- [x] 错题本 / 学习进度跟踪（参照 Vibe-Trading 的 Shadow Account 思路：`mistake` 命令 + 智能体工具 + Web 页面）
+- [ ] 多用户 / 远程部署（鉴权、HTTPS——当前 Web UI 仅本机使用）

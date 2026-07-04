@@ -14,3 +14,6 @@ vibe-cs101 = "vibe_cs101.cli:main"
 
 [tool.setuptools.packages.find]
 include = ["vibe_cs101*"]
+
+[tool.setuptools.package-data]
+vibe_cs101 = ["web/*"]

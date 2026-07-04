@@ -55,6 +55,63 @@ TOOL_SCHEMAS = [
             "parameters": {"type": "object", "properties": {}},
         },
     },
+    {
+        "type": "function",
+        "function": {
+            "name": "record_mistake",
+            "description": (
+                "把一道做错的题记入错题本（自动安排 1/3/7/14/30 天间隔复习）。"
+                "当用户说做错了某题、某题不会做、希望记下来复习时使用。"
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "problem": {"type": "string", "description": "题目标识，如“OpenJudge 26977 接雨水”"},
+                    "course": {"type": "string", "enum": ["cs101", "cs201"], "description": "所属课程"},
+                    "tags": {"type": "string", "description": "知识点标签，逗号分隔，如“dp,单调栈”"},
+                    "reason": {"type": "string", "description": "错误原因（思路错/边界条件/超时/语法等）"},
+                    "note": {"type": "string", "description": "正确思路要点"},
+                    "section_id": {"type": "integer", "description": "关联题解章节 id（可选，来自 search_materials）"},
+                },
+                "required": ["problem"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "review_mistakes",
+            "description": "查询错题本：今日待复习列表、全部错题、或学习进度统计（薄弱知识点排行）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "view": {
+                        "type": "string",
+                        "enum": ["due", "all", "stats"],
+                        "description": "due=今日待复习，all=全部错题，stats=进度统计",
+                    },
+                    "course": {"type": "string", "enum": ["cs101", "cs201"]},
+                    "tag": {"type": "string", "description": "按标签过滤"},
+                },
+                "required": ["view"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "mark_reviewed",
+            "description": "记录一次错题复习结果：good（记住了，间隔前进）或 again（还是不会，重新开始）。",
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "mistake_id": {"type": "integer"},
+                    "result": {"type": "string", "enum": ["good", "again"]},
+                },
+                "required": ["mistake_id", "result"],
+            },
+        },
+    },
 ]
 
 
@@ -109,10 +166,48 @@ def _tool_list_sources(_args: dict) -> str:
     )
 
 
+def _tool_record_mistake(args: dict) -> str:
+    from . import journal
+
+    m = journal.add_mistake(
+        problem=str(args.get("problem", "")),
+        course=args.get("course") or "",
+        tags=args.get("tags") or "",
+        reason=args.get("reason") or "",
+        note=args.get("note") or "",
+        section_id=args.get("section_id"),
+    )
+    return json.dumps({"recorded": m.to_dict(), "hint": f"已记入错题本，{m.next_review} 复习"}, ensure_ascii=False)
+
+
+def _tool_review_mistakes(args: dict) -> str:
+    from . import journal
+
+    view = args.get("view", "due")
+    if view == "stats":
+        return json.dumps(journal.stats(), ensure_ascii=False)
+    mistakes = journal.list_mistakes(
+        due_only=(view == "due"),
+        course=args.get("course") or None,
+        tag=args.get("tag") or None,
+    )
+    return json.dumps({"mistakes": [m.to_dict() for m in mistakes]}, ensure_ascii=False)
+
+
+def _tool_mark_reviewed(args: dict) -> str:
+    from . import journal
+
+    m = journal.review_mistake(int(args["mistake_id"]), str(args.get("result", "good")))
+    return json.dumps({"updated": m.to_dict()}, ensure_ascii=False)
+
+
 _HANDLERS = {
     "search_materials": _tool_search,
     "read_section": _tool_read,
     "list_sources": _tool_list_sources,
+    "record_mistake": _tool_record_mistake,
+    "review_mistakes": _tool_review_mistakes,
+    "mark_reviewed": _tool_mark_reviewed,
 }
 
 

@@ -128,6 +128,65 @@ def cmd_chat(_args: argparse.Namespace) -> int:
     return 0
 
 
+def _print_mistakes(mistakes) -> None:
+    if not mistakes:
+        print("（无记录）")
+        return
+    for m in mistakes:
+        badge = "🎓" if m.status == "mastered" else "📌"
+        tags = f" [{m.tags}]" if m.tags else ""
+        course = f" ({m.course})" if m.course else ""
+        print(f"{badge} #{m.id} {m.problem}{course}{tags}")
+        if m.reason:
+            print(f"     原因: {m.reason}")
+        print(f"     复习: {m.next_review}（已复习 {m.review_count} 次）")
+
+
+def cmd_mistake(args: argparse.Namespace) -> int:
+    from . import journal
+
+    action = args.action
+    if action == "add":
+        m = journal.add_mistake(
+            problem=args.problem, course=args.course or "", tags=args.tags or "",
+            reason=args.reason or "", note=args.note or "", section_id=args.section,
+        )
+        print(f"已记入错题本 #{m.id}，{m.next_review} 复习")
+    elif action == "list":
+        _print_mistakes(journal.list_mistakes(course=args.course, tag=args.tags))
+    elif action == "due":
+        due = journal.list_mistakes(due_only=True)
+        if due:
+            print(f"今日待复习 {len(due)} 题：")
+        _print_mistakes(due)
+    elif action == "review":
+        m = journal.review_mistake(args.id, args.result)
+        verdict = "已掌握 🎓" if m.status == "mastered" else f"下次复习 {m.next_review}"
+        print(f"#{m.id} {m.problem}: {verdict}")
+    elif action == "rm":
+        print("已删除" if journal.delete_mistake(args.id) else "不存在")
+    elif action == "stats":
+        s = journal.stats()
+        print(f"错题总数 {s['total']}（活跃 {s['active']}，已掌握 {s['mastered']}），今日待复习 {s['due_today']}")
+        print(f"累计复习 {s['reviews_total']} 次，遗忘率 {s['again_rate']:.0%}")
+        if s["by_tag"]:
+            print("\n薄弱知识点（未掌握数排序）:")
+            for tag, v in list(s["by_tag"].items())[:10]:
+                print(f"  {tag}: {v['total'] - v['mastered']} 未掌握 / {v['total']} 总计")
+        if s["by_course"]:
+            print("\n按课程:")
+            for course, v in s["by_course"].items():
+                print(f"  {course}: {v['mastered']}/{v['total']} 已掌握")
+    return 0
+
+
+def cmd_serve(args: argparse.Namespace) -> int:
+    from .server import serve
+
+    serve(host=args.host, port=args.port)
+    return 0
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="vibe-cs101",
@@ -156,6 +215,32 @@ def main(argv: list[str] | None = None) -> int:
 
     sub.add_parser("chat", help="交互式对话").set_defaults(fn=cmd_chat)
     sub.add_parser("info", help="显示配置与索引状态").set_defaults(fn=cmd_info)
+
+    p = sub.add_parser("mistake", help="错题本：add/list/due/review/rm/stats")
+    msub = p.add_subparsers(dest="action", required=True)
+    pa = msub.add_parser("add", help="记一道错题")
+    pa.add_argument("problem", help='题目标识，如 "OpenJudge 26977 接雨水"')
+    pa.add_argument("--course", choices=["cs101", "cs201"])
+    pa.add_argument("--tags", help="知识点标签，逗号分隔")
+    pa.add_argument("--reason", help="错误原因")
+    pa.add_argument("--note", help="正确思路要点")
+    pa.add_argument("--section", type=int, help="关联题解章节 id")
+    pl = msub.add_parser("list", help="列出错题")
+    pl.add_argument("--course", choices=["cs101", "cs201"])
+    pl.add_argument("--tags", help="按标签过滤")
+    msub.add_parser("due", help="今日待复习")
+    pr = msub.add_parser("review", help="记录复习结果")
+    pr.add_argument("id", type=int)
+    pr.add_argument("result", choices=["good", "again"])
+    pd = msub.add_parser("rm", help="删除错题")
+    pd.add_argument("id", type=int)
+    msub.add_parser("stats", help="学习进度统计")
+    p.set_defaults(fn=cmd_mistake)
+
+    p = sub.add_parser("serve", help="启动 Web UI（对话/检索/错题本）")
+    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--port", type=int, default=8101)
+    p.set_defaults(fn=cmd_serve)
 
     args = parser.parse_args(argv)
     return args.fn(args)
