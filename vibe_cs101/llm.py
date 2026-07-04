@@ -7,6 +7,7 @@ DeepSeek, OpenAI, Moonshot/Kimi, GLM, local servers, ...
 from __future__ import annotations
 
 import json
+import time
 import urllib.error
 import urllib.request
 from collections.abc import Iterator
@@ -14,12 +15,28 @@ from collections.abc import Iterator
 from .config import LLMConfig
 
 TIMEOUT_S = 180
+RETRY_DELAY_S = 1.0
 # 部分网关（如 Cloudflare WAF）会拦截 Python-urllib 默认 UA 并返回 403
 USER_AGENT = "vibe-cs101/1.0"
 
 
 class LLMError(RuntimeError):
     pass
+
+
+def _endpoint(cfg: LLMConfig) -> str:
+    return f"{cfg.model} @ {cfg.base_url.rstrip('/')}"
+
+
+def _open(req: urllib.request.Request):
+    """urlopen；对瞬时网络错误（DNS 抖动/连接失败/超时）自动重试一次。"""
+    try:
+        return urllib.request.urlopen(req, timeout=TIMEOUT_S)
+    except urllib.error.HTTPError:
+        raise  # 服务端已应答，重试无益，交由调用方格式化
+    except (urllib.error.URLError, TimeoutError, OSError):
+        time.sleep(RETRY_DELAY_S)
+        return urllib.request.urlopen(req, timeout=TIMEOUT_S)
 
 
 def _format_http_error(cfg: LLMConfig, code: int, body: str) -> str:
@@ -80,13 +97,13 @@ def chat(
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+        with _open(req) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
         body = exc.read().decode("utf-8", errors="replace")
         raise LLMError(_format_http_error(cfg, exc.code, body)) from exc
     except Exception as exc:  # noqa: BLE001
-        raise LLMError(f"LLM API request failed: {exc}") from exc
+        raise LLMError(f"LLM API request failed ({_endpoint(cfg)}): {exc}") from exc
 
     try:
         return data["choices"][0]["message"]
@@ -122,7 +139,7 @@ def stream_chat(
         },
     )
     try:
-        with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
+        with _open(req) as resp:
             for raw_line in resp:
                 line = raw_line.decode("utf-8", errors="replace").strip()
                 if not line or not line.startswith("data:"):
@@ -139,4 +156,4 @@ def stream_chat(
     except LLMError:
         raise
     except Exception as exc:  # noqa: BLE001
-        raise LLMError(f"LLM API request failed: {exc}") from exc
+        raise LLMError(f"LLM API request failed ({_endpoint(cfg)}): {exc}") from exc
