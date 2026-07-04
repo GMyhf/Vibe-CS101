@@ -3,29 +3,54 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Vibe-cs101 · 个人计算机基础学习智能体</title>
+<title>Vibe-cs101 · 计算机基础学习智能体</title>
 <style>
   :root {
-    --bg: #f6f7fb; --card: #fff; --ink: #1f2430; --muted: #6b7280;
+    --bg: #fff; --side: #f7f7f8; --card: #fff; --ink: #1f2430; --muted: #6b7280;
     --brand: #4f46e5; --brand-soft: #eef2ff; --ok: #059669; --warn: #d97706;
-    --border: #e5e7eb; --code-bg: #f3f4f6;
+    --border: #e5e7eb; --code-bg: #f3f4f6; --hover: #ececf1;
   }
   * { box-sizing: border-box; }
+  html, body { height: 100%; }
   body { margin: 0; font-family: -apple-system, "PingFang SC", "Microsoft YaHei", sans-serif;
-         background: var(--bg); color: var(--ink); }
-  header { background: var(--card); border-bottom: 1px solid var(--border);
-           padding: 14px 22px; display: flex; align-items: baseline; gap: 14px; }
-  header h1 { font-size: 18px; margin: 0; }
-  header .sub { color: var(--muted); font-size: 13px; }
-  header .right { margin-left: auto; display: flex; align-items: center; gap: 10px; }
-  nav { display: flex; gap: 4px; background: var(--card); padding: 0 16px;
-        border-bottom: 1px solid var(--border); }
-  nav button { border: 0; background: none; padding: 11px 16px; font-size: 14px;
-               cursor: pointer; color: var(--muted); border-bottom: 2px solid transparent; }
-  nav button.active { color: var(--brand); border-bottom-color: var(--brand); font-weight: 600; }
-  main { max-width: 900px; margin: 0 auto; padding: 18px; }
+         background: var(--bg); color: var(--ink); display: flex; }
+
+  /* ---- left sidebar ---- */
+  aside { width: 264px; flex-shrink: 0; background: var(--side); border-right: 1px solid var(--border);
+          display: flex; flex-direction: column; height: 100vh; }
+  .brand { padding: 16px 16px 10px; }
+  .brand h1 { font-size: 17px; margin: 0 0 4px; }
+  .brand .sub { color: var(--muted); font-size: 12px; line-height: 1.5; }
+  .new-chat { margin: 6px 12px 10px; padding: 9px 12px; border: 1px solid var(--border);
+              border-radius: 10px; background: var(--card); font: inherit; font-size: 14px;
+              cursor: pointer; text-align: left; }
+  .new-chat:hover { background: var(--hover); }
+  aside nav { display: flex; flex-direction: column; gap: 2px; padding: 0 12px 8px;
+              border-bottom: 1px solid var(--border); }
+  aside nav button { border: 0; background: none; padding: 8px 10px; font-size: 14px;
+                     cursor: pointer; color: var(--ink); border-radius: 8px; text-align: left; }
+  aside nav button:hover { background: var(--hover); }
+  aside nav button.active { background: var(--brand-soft); color: var(--brand); font-weight: 600; }
+  #session-list { flex: 1; overflow-y: auto; padding: 8px 12px; }
+  #session-list .label { font-size: 11px; color: var(--muted); padding: 2px 10px 6px; }
+  .sess { display: flex; align-items: center; gap: 4px; padding: 7px 6px 7px 10px;
+          border-radius: 8px; cursor: pointer; font-size: 13px; }
+  .sess:hover { background: var(--hover); }
+  .sess.active { background: var(--brand-soft); color: var(--brand); }
+  .sess .t { flex: 1; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+  .sess .del { visibility: hidden; border: 0; background: none; cursor: pointer;
+               color: var(--muted); font-size: 12px; padding: 2px 5px; border-radius: 6px; }
+  .sess:hover .del { visibility: visible; }
+  .sess .del:hover { color: #b91c1c; background: #fee2e2; }
+  .side-foot { border-top: 1px solid var(--border); padding: 10px 16px; font-size: 12px;
+               color: var(--muted); display: flex; flex-direction: column; gap: 4px; }
+
+  /* ---- main area ---- */
+  main { flex: 1; min-width: 0; height: 100vh; display: flex; flex-direction: column; }
   .panel { display: none; }
-  .panel.active { display: block; }
+  .panel.active { display: flex; flex-direction: column; flex: 1; min-height: 0; }
+  .panel-pad { padding: 18px; overflow-y: auto; }
+  .panel-pad .inner { max-width: 900px; margin: 0 auto; }
   .card { background: var(--card); border: 1px solid var(--border); border-radius: 10px;
           padding: 16px; margin-bottom: 14px; }
   input, select, textarea { font: inherit; padding: 8px 10px; border: 1px solid var(--border);
@@ -38,15 +63,19 @@
           padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .grow { flex: 1; min-width: 180px; }
-  /* chat */
-  #chat-log { display: flex; flex-direction: column; gap: 10px; margin-bottom: 12px; }
-  .msg { padding: 10px 14px; border-radius: 12px; max-width: 85%;
-         word-break: break-word; line-height: 1.55; }
-  .msg.user { align-self: flex-end; background: var(--brand); color: #fff; }
-  .msg.bot  { align-self: flex-start; background: var(--card); border: 1px solid var(--border); }
-  .msg.user { white-space: pre-wrap; }
-  .msg.bot > :first-child { margin-top: 0; }
-  .msg.bot > :last-child { margin-bottom: 0; }
+
+  /* ---- chat (ChatGPT-like) ---- */
+  #chat-scroll { flex: 1; overflow-y: auto; }
+  #chat-log { max-width: 780px; margin: 0 auto; padding: 24px 20px 8px;
+              display: flex; flex-direction: column; gap: 18px; }
+  #chat-empty { text-align: center; color: var(--muted); margin-top: 18vh; font-size: 14px; }
+  #chat-empty .big { font-size: 22px; margin-bottom: 8px; color: var(--ink); }
+  .msg { line-height: 1.6; word-break: break-word; }
+  .msg.user { align-self: flex-end; max-width: 80%; background: var(--brand); color: #fff;
+              padding: 10px 14px; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
+  .msg.bot { align-self: stretch; }
+  .msg.bot .content > :first-child { margin-top: 0; }
+  .msg.bot .content > :last-child { margin-bottom: 0; }
   .msg.bot h1, .msg.bot h2, .msg.bot h3 { line-height: 1.3; margin: 14px 0 8px; }
   .msg.bot h1 { font-size: 22px; }
   .msg.bot h2 { font-size: 18px; }
@@ -62,8 +91,27 @@
   .msg.bot th, .msg.bot td { border: 1px solid var(--border); padding: 6px 8px; }
   .msg.bot th { background: var(--brand-soft); color: var(--ink); font-weight: 600; }
   .msg.bot blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
-  .events { font-size: 12px; color: var(--muted); margin: 2px 0 0 4px; }
-  /* search results */
+  .events { font-size: 12px; color: var(--muted); margin-top: 6px; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 8px;
+             font-size: 12px; color: var(--muted); }
+  .actions button { border: 0; background: none; cursor: pointer; color: var(--muted);
+                    font-size: 12px; padding: 3px 8px; border-radius: 6px; }
+  .actions button:hover { background: var(--hover); color: var(--ink); }
+
+  #chat-inputbar { padding: 8px 20px 14px; }
+  .inputbox { max-width: 780px; margin: 0 auto; display: flex; align-items: flex-end; gap: 8px;
+              border: 1px solid var(--border); border-radius: 16px; padding: 8px 8px 8px 14px;
+              background: var(--card); box-shadow: 0 2px 12px rgba(0,0,0,.05); }
+  .inputbox:focus-within { border-color: var(--brand); }
+  #chat-input { flex: 1; border: 0; outline: none; resize: none; padding: 6px 0;
+                max-height: 160px; background: none; }
+  #chat-send { background: var(--brand); color: #fff; border: 0; border-radius: 10px;
+               width: 36px; height: 36px; font-size: 16px; cursor: pointer; flex-shrink: 0; }
+  #chat-send:disabled { opacity: .4; cursor: default; }
+  .hint { max-width: 780px; margin: 8px auto 0; text-align: center;
+          color: var(--muted); font-size: 12px; }
+
+  /* ---- search results ---- */
   .hit { padding: 10px 4px; border-bottom: 1px solid var(--border); }
   .hit:last-child { border-bottom: 0; }
   .hit .title { font-weight: 600; cursor: pointer; color: var(--brand); }
@@ -72,7 +120,7 @@
   .hit mark { background: #fde68a; padding: 0 2px; }
   #section-view pre { white-space: pre-wrap; word-break: break-word; background: var(--code-bg);
           padding: 12px; border-radius: 8px; max-height: 60vh; overflow: auto; font-size: 13px; }
-  /* mistakes */
+  /* ---- mistakes ---- */
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
@@ -93,78 +141,104 @@
   dialog { border: 1px solid var(--border); border-radius: 12px; padding: 18px; max-width: 720px; width: 90%; }
   dialog.auth { max-width: 420px; }
   dialog::backdrop { background: rgba(0,0,0,.35); }
+
+  /* ---- narrow screens: sidebar becomes top bar ---- */
+  @media (max-width: 760px) {
+    body { flex-direction: column; }
+    aside { width: 100%; height: auto; border-right: 0; border-bottom: 1px solid var(--border); }
+    aside nav { flex-direction: row; overflow-x: auto; border-bottom: 0; }
+    #session-list { display: none; }
+    .brand .sub { display: none; }
+    .side-foot { display: none; }
+    main { height: auto; flex: 1; min-height: 0; }
+  }
 </style>
 </head>
 <body>
-<header>
-  <h1>🎓 Vibe-cs101</h1>
-  <span class="sub">个人计算机基础学习智能体 · cs101 计算概论B / cs201 数据结构与算法B</span>
-  <span class="right">
-    <span class="sub" id="llm-status"></span>
-    <span class="sub" id="user-status"></span>
+
+<aside>
+  <div class="brand">
+    <h1>🎓 Vibe-cs101</h1>
+    <div class="sub">计算机基础学习智能体<br>计算概论B / 数据结构与算法B</div>
+  </div>
+  <button id="chat-new" class="new-chat">＋ 新对话</button>
+  <nav>
+    <button data-tab="chat" class="active">💬 对话</button>
+    <button data-tab="search">🔍 检索</button>
+    <button data-tab="mistakes">📌 错题本</button>
+    <button data-tab="stats">📈 学习进度</button>
+  </nav>
+  <div id="session-list"></div>
+  <div class="side-foot">
+    <span id="llm-status"></span>
+    <span id="user-status"></span>
     <button id="auth-switch" class="ghost" style="display:none">切换用户</button>
-  </span>
-</header>
-<nav>
-  <button data-tab="chat" class="active">💬 对话</button>
-  <button data-tab="search">🔍 检索</button>
-  <button data-tab="mistakes">📌 错题本</button>
-  <button data-tab="stats">📈 学习进度</button>
-</nav>
+  </div>
+</aside>
+
 <main>
 
 <section id="panel-chat" class="panel active">
-  <div class="row" style="margin-bottom:10px">
-    <select id="chat-sessions" class="grow"><option value="">（新对话）</option></select>
-    <button id="chat-new" class="ghost">＋ 新对话</button>
-    <button id="chat-del" class="ghost" title="删除当前会话">删除会话</button>
+  <div id="chat-scroll">
+    <div id="chat-log">
+      <div id="chat-empty">
+        <div class="big">有什么可以帮你？</div>
+        比如：单调栈是什么？OpenJudge 26977 怎么做？dp 和贪心的区别？
+      </div>
+    </div>
   </div>
-  <div id="chat-log"></div>
-  <div class="row">
-    <input id="chat-input" class="grow" placeholder="问点什么，比如：单调栈是什么？OpenJudge 26977 怎么做？"
-           autocomplete="off">
-    <button id="chat-send" class="primary">发送</button>
+  <div id="chat-inputbar">
+    <div class="inputbox">
+      <textarea id="chat-input" rows="1" placeholder="问点什么…（Enter 发送，Shift+Enter 换行）"></textarea>
+      <button id="chat-send" title="发送">↑</button>
+    </div>
+    <p class="hint">回答基于老师的课件与题解并注明出处；说「我做错了某题」可自动记入错题本。</p>
   </div>
-  <p class="muted">回答基于老师的课件与题解并注明出处；说「我做错了某题」可自动记入错题本。</p>
 </section>
 
 <section id="panel-search" class="panel">
-  <div class="card">
-    <div class="row">
-      <input id="search-q" class="grow" placeholder="关键词，如：动态规划 / 接雨水 / dijkstra">
-      <select id="search-course">
-        <option value="">全部课程</option>
-        <option value="cs101">cs101 计概</option>
-        <option value="cs201">cs201 数算</option>
-      </select>
-      <button id="search-btn" class="primary">检索</button>
+  <div class="panel-pad"><div class="inner">
+    <div class="card">
+      <div class="row">
+        <input id="search-q" class="grow" placeholder="关键词，如：动态规划 / 接雨水 / dijkstra">
+        <select id="search-course">
+          <option value="">全部课程</option>
+          <option value="cs101">cs101 计概</option>
+          <option value="cs201">cs201 数算</option>
+        </select>
+        <button id="search-btn" class="primary">检索</button>
+      </div>
     </div>
-  </div>
-  <div class="card" id="search-results"><p class="muted">离线全文检索，无需 API key。</p></div>
+    <div class="card" id="search-results"><p class="muted">离线全文检索，无需 API key。</p></div>
+  </div></div>
 </section>
 
 <section id="panel-mistakes" class="panel">
-  <div class="card">
-    <div class="row">
-      <select id="mi-view">
-        <option value="all">全部错题</option>
-        <option value="due">今日待复习</option>
-      </select>
-      <button id="mi-refresh" class="ghost">刷新</button>
-      <span class="grow"></span>
-      <button id="mi-add-btn" class="primary">＋ 记一道错题</button>
+  <div class="panel-pad"><div class="inner">
+    <div class="card">
+      <div class="row">
+        <select id="mi-view">
+          <option value="all">全部错题</option>
+          <option value="due">今日待复习</option>
+        </select>
+        <button id="mi-refresh" class="ghost">刷新</button>
+        <span class="grow"></span>
+        <button id="mi-add-btn" class="primary">＋ 记一道错题</button>
+      </div>
     </div>
-  </div>
-  <div class="card"><table id="mi-table">
-    <thead><tr><th>#</th><th>题目</th><th>标签</th><th>原因</th><th>下次复习</th><th>操作</th></tr></thead>
-    <tbody></tbody>
-  </table></div>
+    <div class="card"><table id="mi-table">
+      <thead><tr><th>#</th><th>题目</th><th>标签</th><th>原因</th><th>下次复习</th><th>操作</th></tr></thead>
+      <tbody></tbody>
+    </table></div>
+  </div></div>
 </section>
 
 <section id="panel-stats" class="panel">
-  <div class="statgrid" id="stat-cards"></div>
-  <div class="card"><h3 style="margin-top:0">薄弱知识点</h3><div id="stat-tags"></div></div>
-  <div class="card"><h3 style="margin-top:0">按课程</h3><div id="stat-courses"></div></div>
+  <div class="panel-pad"><div class="inner">
+    <div class="statgrid" id="stat-cards"></div>
+    <div class="card"><h3 style="margin-top:0">薄弱知识点</h3><div id="stat-tags"></div></div>
+    <div class="card"><h3 style="margin-top:0">按课程</h3><div id="stat-courses"></div></div>
+  </div></div>
 </section>
 
 </main>
@@ -266,15 +340,21 @@ $('#auth-switch').onclick = () => {
 };
 
 /* ---- tabs ---- */
-document.querySelectorAll('nav button').forEach(b => b.onclick = () => {
-  document.querySelectorAll('nav button').forEach(x => x.classList.toggle('active', x === b));
+document.querySelectorAll('aside nav button').forEach(b => b.onclick = () => {
+  document.querySelectorAll('aside nav button').forEach(x => x.classList.toggle('active', x === b));
   document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
   $(`#panel-${b.dataset.tab}`).classList.add('active');
   if (b.dataset.tab === 'mistakes') loadMistakes();
   if (b.dataset.tab === 'stats') loadStats();
 });
+function showChatTab() {
+  document.querySelectorAll('aside nav button').forEach(x =>
+    x.classList.toggle('active', x.dataset.tab === 'chat'));
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  $('#panel-chat').classList.add('active');
+}
 
-/* ---- info/auth ---- */
+/* ---- info ---- */
 async function loadInfo() {
   const d = await api('/api/info');
   $('#llm-status').textContent = d.llm_configured
@@ -292,55 +372,67 @@ async function init() {
 }
 init();
 
-/* ---- chat sessions（持久化会话） ---- */
+/* ---- chat sessions（左侧会话列表，持久化） ---- */
 const sessKey = () => `vibe-cs101-session:${currentUser || 'owner'}`;
 async function loadSessionList() {
   const d = await api('/api/sessions');
-  const sel = $('#chat-sessions');
-  sel.innerHTML = '<option value="">（新对话）</option>' + d.sessions.map(s =>
-    `<option value="${esc(s.id)}">${esc(s.title || '(无标题)')} · ${esc(s.updated.slice(0, 16).replace('T', ' '))}</option>`
-  ).join('');
-  sel.value = sessionId && d.sessions.some(s => s.id === sessionId) ? sessionId : '';
+  const box = $('#session-list');
+  if (!d.sessions.length) { box.innerHTML = ''; return; }
+  box.innerHTML = '<div class="label">历史会话</div>' + d.sessions.map(s => `
+    <div class="sess ${s.id === sessionId ? 'active' : ''}" data-id="${esc(s.id)}" title="${esc(s.title || '')}">
+      <span class="t">${esc(s.title || '(无标题)')}</span>
+      <button class="del" data-id="${esc(s.id)}" title="删除会话">✕</button>
+    </div>`).join('');
+  box.querySelectorAll('.sess').forEach(el => el.onclick = async () => {
+    try { await openSess(el.dataset.id); showChatTab(); } catch (e) { alert(e.message); }
+  });
+  box.querySelectorAll('.del').forEach(btn => btn.onclick = async e => {
+    e.stopPropagation();
+    if (!confirm('删除该会话及其历史？')) return;
+    await api(`/api/sessions/${btn.dataset.id}`, {method: 'DELETE'});
+    if (btn.dataset.id === sessionId) newSess();
+    await loadSessionList();
+  });
+}
+function clearLog() {
+  $('#chat-log').innerHTML = '';
 }
 async function openSess(id) {
   const d = await api(`/api/sessions/${id}`);
   sessionId = id;
   localStorage.setItem(sessKey(), id);
-  $('#chat-log').innerHTML = '';
+  clearLog();
   for (const m of d.messages) {
-    if (m.role === 'user') addMsg('user', esc(m.content));
-    else addMsg('bot', mdLite(m.content));
+    if (m.role === 'user') addUserMsg(m.content);
+    else finishBotMsg(addBotMsg(), m.content, null, []);
   }
+  await loadSessionList();
+  $('#chat-scroll').scrollTop = $('#chat-scroll').scrollHeight;
 }
 function newSess() {
   sessionId = null;
   localStorage.removeItem(sessKey());
-  $('#chat-log').innerHTML = '';
-  $('#chat-sessions').value = '';
+  clearLog();
+  $('#chat-log').innerHTML = `<div id="chat-empty">
+    <div class="big">有什么可以帮你？</div>
+    比如：单调栈是什么？OpenJudge 26977 怎么做？dp 和贪心的区别？
+  </div>`;
+  loadSessionList().catch(() => {});
+  showChatTab();
+  $('#chat-input').focus();
 }
 async function initSessions() {
-  newSess();
+  sessionId = null;
   await loadSessionList();
   const saved = localStorage.getItem(sessKey());
-  if (saved && [...$('#chat-sessions').options].some(o => o.value === saved)) {
-    try { await openSess(saved); } catch (e) { newSess(); }
+  if (saved && $(`.sess[data-id="${saved}"]`)) {
+    try { await openSess(saved); return; } catch (e) {}
   }
+  newSess();
 }
 $('#chat-new').onclick = newSess;
-$('#chat-sessions').onchange = async () => {
-  const id = $('#chat-sessions').value;
-  if (id) { try { await openSess(id); } catch (e) { alert(e.message); } }
-  else newSess();
-};
-$('#chat-del').onclick = async () => {
-  if (!sessionId) { newSess(); return; }
-  if (!confirm('删除当前会话及其历史？')) return;
-  await api(`/api/sessions/${sessionId}`, {method: 'DELETE'});
-  newSess();
-  await loadSessionList();
-};
 
-/* ---- chat ---- */
+/* ---- markdown-lite 渲染 ---- */
 const inlineMd = s => esc(s)
   .replace(/`([^`\n]+)`/g, '<code>$1</code>')
   .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -417,36 +509,102 @@ function mdLite(text) {
   flushPara(); flushList();
   return out.join('');
 }
-function addMsg(cls, html) {
+
+/* ---- chat messages ---- */
+function removeEmpty() {
+  const e = $('#chat-empty');
+  if (e) e.remove();
+}
+function scrollBottom() {
+  const sc = $('#chat-scroll');
+  sc.scrollTop = sc.scrollHeight;
+}
+function addUserMsg(text) {
+  removeEmpty();
   const div = document.createElement('div');
-  div.className = `msg ${cls}`;
-  div.innerHTML = html;
+  div.className = 'msg user';
+  div.textContent = text;
   $('#chat-log').appendChild(div);
-  div.scrollIntoView({behavior: 'smooth', block: 'end'});
+  scrollBottom();
   return div;
 }
+function addBotMsg() {
+  removeEmpty();
+  const div = document.createElement('div');
+  div.className = 'msg bot';
+  div.innerHTML = '<div class="content"><p class="muted">思考中…</p></div>';
+  $('#chat-log').appendChild(div);
+  scrollBottom();
+  return div;
+}
+async function copyText(btn, text) {
+  try {
+    await navigator.clipboard.writeText(text);
+  } catch (e) {
+    const ta = document.createElement('textarea');
+    ta.value = text;
+    document.body.appendChild(ta);
+    ta.select();
+    document.execCommand('copy');
+    ta.remove();
+  }
+  const old = btn.textContent;
+  btn.textContent = '✓ 已复制';
+  setTimeout(() => { btn.textContent = old; }, 1200);
+}
+function finishBotMsg(div, rawText, seconds, events) {
+  div.querySelector('.content').innerHTML = mdLite(rawText);
+  if (events && events.length) {
+    const ev = document.createElement('div');
+    ev.className = 'events';
+    ev.textContent = events.join('  ·  ');
+    div.appendChild(ev);
+  }
+  const act = document.createElement('div');
+  act.className = 'actions';
+  const btn = document.createElement('button');
+  btn.textContent = '⧉ 复制';
+  btn.onclick = () => copyText(btn, rawText);
+  act.appendChild(btn);
+  if (seconds != null) {
+    const t = document.createElement('span');
+    t.textContent = `${seconds}s`;
+    t.title = '响应耗时';
+    act.appendChild(t);
+  }
+  div.appendChild(act);
+}
+
+/* ---- send ---- */
 async function sendChat() {
   const input = $('#chat-input'), btn = $('#chat-send');
   const message = input.value.trim();
-  if (!message) return;
-  input.value = ''; btn.disabled = true;
-  addMsg('user', esc(message));
-  const waiting = addMsg('bot', '<p class="muted">思考中…</p>');
+  if (!message || btn.disabled) return;
+  input.value = '';
+  input.style.height = 'auto';
+  btn.disabled = true;
+  addUserMsg(message);
+  const waiting = addBotMsg();
   const events = [];
   let answer = '';
   let lastRender = 0;
+  const t0 = performance.now();
   const render = (force = false) => {
     const now = Date.now();
     if (!force && now - lastRender < 80) return;
     lastRender = now;
-    waiting.innerHTML = answer ? mdLite(answer) : '<p class="muted">检索资料中…</p>';
+    const content = waiting.querySelector('.content');
+    content.innerHTML = answer ? mdLite(answer) : '<p class="muted">检索资料中…</p>';
+    let ev = waiting.querySelector('.events');
     if (events.length) {
-      const ev = document.createElement('div');
-      ev.className = 'events';
+      if (!ev) {
+        ev = document.createElement('div');
+        ev.className = 'events';
+        waiting.appendChild(ev);
+      }
       ev.textContent = events.join('  ·  ');
-      waiting.appendChild(ev);
     }
-    waiting.scrollIntoView({behavior: 'smooth', block: 'end'});
+    scrollBottom();
   };
   try {
     const headers = {'Content-Type': 'application/json'};
@@ -480,17 +638,25 @@ async function sendChat() {
         else if (evt.type === 'event') { events.push(evt.text); render(true); }
         else if (evt.type === 'chunk') { answer += evt.text; render(); }
         else if (evt.type === 'error') throw new Error(evt.error || '流式响应失败');
-        else if (evt.type === 'done') render(true);
       }
     }
-    render(true);
+    const seconds = ((performance.now() - t0) / 1000).toFixed(1);
+    waiting.querySelector('.events')?.remove();
+    finishBotMsg(waiting, answer || '(空回答)', seconds, events);
+    scrollBottom();
     loadSessionList().catch(() => {});
   } catch (e) {
-    waiting.innerHTML = `⚠️ ${esc(e.message)}`;
+    waiting.querySelector('.content').innerHTML = `⚠️ ${esc(e.message)}`;
   } finally { btn.disabled = false; input.focus(); }
 }
 $('#chat-send').onclick = sendChat;
-$('#chat-input').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) sendChat(); });
+$('#chat-input').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.shiftKey && !e.isComposing) { e.preventDefault(); sendChat(); }
+});
+$('#chat-input').addEventListener('input', function () {
+  this.style.height = 'auto';
+  this.style.height = Math.min(this.scrollHeight, 160) + 'px';
+});
 
 /* ---- search ---- */
 async function doSearch() {
