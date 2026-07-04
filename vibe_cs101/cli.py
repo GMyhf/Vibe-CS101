@@ -203,6 +203,35 @@ def cmd_mistake(args: argparse.Namespace) -> int:
     return 0
 
 
+def cmd_user(args: argparse.Namespace) -> int:
+    from . import users
+
+    action = args.action
+    try:
+        if action == "add":
+            key = users.add_user(args.name, key=args.key)
+            print(f"✅ 用户 {args.name} 已创建。API key（仅显示这一次，请妥善保存）：")
+            print(f"   {key}")
+            print("无需重启 serve，立即生效。")
+        elif action == "reset":
+            key = users.reset_key(args.name)
+            print(f"✅ 用户 {args.name} 的 key 已重置（旧 key 立即失效）。新 key：")
+            print(f"   {key}")
+        elif action == "rm":
+            print("已删除" if users.remove_user(args.name) else "不存在")
+        elif action == "list":
+            rows = users.list_users()
+            if not rows:
+                print("（无持久化用户；环境变量 VIBE_CS101_AUTH_KEY(S) 配置的用户不在此列）")
+            for u in rows:
+                seen = f"，最近使用 {u['last_seen']}" if u["last_seen"] else ""
+                print(f"  {u['name']}（创建于 {u['created']}{seen}）")
+    except ValueError as exc:
+        print(f"❌ {exc}", file=sys.stderr)
+        return 1
+    return 0
+
+
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
@@ -260,6 +289,18 @@ def main(argv: list[str] | None = None) -> int:
     pd.add_argument("id", type=int)
     msub.add_parser("stats", help="学习进度统计")
     p.set_defaults(fn=cmd_mistake)
+
+    p = sub.add_parser("user", help="Web UI 用户管理：add/list/rm/reset（key 加盐哈希存储）")
+    usub = p.add_subparsers(dest="action", required=True)
+    ua = usub.add_parser("add", help="创建用户并生成 API key")
+    ua.add_argument("name", help="用户名（字母/数字/_/-，≤32 字符）")
+    ua.add_argument("--key", help="指定 key（默认自动生成随机 key）")
+    usub.add_parser("list", help="列出持久化用户")
+    ur = usub.add_parser("reset", help="重置某用户的 key")
+    ur.add_argument("name")
+    ud = usub.add_parser("rm", help="删除用户")
+    ud.add_argument("name")
+    p.set_defaults(fn=cmd_user)
 
     p = sub.add_parser("serve", help="启动 Web UI（对话/检索/错题本）")
     p.add_argument("--host", default="127.0.0.1", help="非本机地址需设置 VIBE_CS101_AUTH_KEY(S)")

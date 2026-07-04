@@ -114,6 +114,11 @@
 <main>
 
 <section id="panel-chat" class="panel active">
+  <div class="row" style="margin-bottom:10px">
+    <select id="chat-sessions" class="grow"><option value="">（新对话）</option></select>
+    <button id="chat-new" class="ghost">＋ 新对话</button>
+    <button id="chat-del" class="ghost" title="删除当前会话">删除会话</button>
+  </div>
   <div id="chat-log"></div>
   <div class="row">
     <input id="chat-input" class="grow" placeholder="问点什么，比如：单调栈是什么？OpenJudge 26977 怎么做？"
@@ -243,6 +248,7 @@ async function login() {
     setUser(me);
     $('#auth-dialog').close();
     await loadInfo();
+    await initSessions();
   } catch (e) {
     authKey = '';
     localStorage.removeItem(AUTH_STORE);
@@ -279,11 +285,60 @@ async function init() {
     const me = await api('/api/me');
     setUser(me);
     await loadInfo();
+    await initSessions();
   } catch (e) {
     if (!$('#auth-dialog').open) $('#llm-status').textContent = '服务不可用';
   }
 }
 init();
+
+/* ---- chat sessions（持久化会话） ---- */
+const sessKey = () => `vibe-cs101-session:${currentUser || 'owner'}`;
+async function loadSessionList() {
+  const d = await api('/api/sessions');
+  const sel = $('#chat-sessions');
+  sel.innerHTML = '<option value="">（新对话）</option>' + d.sessions.map(s =>
+    `<option value="${esc(s.id)}">${esc(s.title || '(无标题)')} · ${esc(s.updated.slice(0, 16).replace('T', ' '))}</option>`
+  ).join('');
+  sel.value = sessionId && d.sessions.some(s => s.id === sessionId) ? sessionId : '';
+}
+async function openSess(id) {
+  const d = await api(`/api/sessions/${id}`);
+  sessionId = id;
+  localStorage.setItem(sessKey(), id);
+  $('#chat-log').innerHTML = '';
+  for (const m of d.messages) {
+    if (m.role === 'user') addMsg('user', esc(m.content));
+    else addMsg('bot', mdLite(m.content));
+  }
+}
+function newSess() {
+  sessionId = null;
+  localStorage.removeItem(sessKey());
+  $('#chat-log').innerHTML = '';
+  $('#chat-sessions').value = '';
+}
+async function initSessions() {
+  newSess();
+  await loadSessionList();
+  const saved = localStorage.getItem(sessKey());
+  if (saved && [...$('#chat-sessions').options].some(o => o.value === saved)) {
+    try { await openSess(saved); } catch (e) { newSess(); }
+  }
+}
+$('#chat-new').onclick = newSess;
+$('#chat-sessions').onchange = async () => {
+  const id = $('#chat-sessions').value;
+  if (id) { try { await openSess(id); } catch (e) { alert(e.message); } }
+  else newSess();
+};
+$('#chat-del').onclick = async () => {
+  if (!sessionId) { newSess(); return; }
+  if (!confirm('删除当前会话及其历史？')) return;
+  await api(`/api/sessions/${sessionId}`, {method: 'DELETE'});
+  newSess();
+  await loadSessionList();
+};
 
 /* ---- chat ---- */
 const inlineMd = s => esc(s)
@@ -421,7 +476,7 @@ async function sendChat() {
         const line = part.split('\n').find(x => x.startsWith('data: '));
         if (!line) continue;
         const evt = JSON.parse(line.slice(6));
-        if (evt.type === 'session') sessionId = evt.session_id;
+        if (evt.type === 'session') { sessionId = evt.session_id; localStorage.setItem(sessKey(), sessionId); }
         else if (evt.type === 'event') { events.push(evt.text); render(true); }
         else if (evt.type === 'chunk') { answer += evt.text; render(); }
         else if (evt.type === 'error') throw new Error(evt.error || '流式响应失败');
@@ -429,6 +484,7 @@ async function sendChat() {
       }
     }
     render(true);
+    loadSessionList().catch(() => {});
   } catch (e) {
     waiting.innerHTML = `⚠️ ${esc(e.message)}`;
   } finally { btn.disabled = false; input.focus(); }

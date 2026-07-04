@@ -54,7 +54,9 @@ python3 -m vibe_cs101 info              # 查看配置与索引状态
 python3 -m vibe_cs101 serve             # http://127.0.0.1:8101
 
 # 远程访问需先启用鉴权；多用户会自动隔离错题本和对话会话
-export VIBE_CS101_AUTH_KEYS='alice:alice-key,bob:bob-key'
+python3 -m vibe_cs101 user add alice    # 推荐：创建用户（key 加盐哈希落盘，仅显示一次）
+python3 -m vibe_cs101 user list         # 用户管理：add / list / reset / rm，即时生效
+# 或临时用环境变量：export VIBE_CS101_AUTH_KEYS='alice:alice-key,bob:bob-key'
 python3 -m vibe_cs101 serve --host 0.0.0.0 --port 8101
 # 可选：直接启用 HTTPS（也可放在 Caddy/Nginx 等反向代理后）
 python3 -m vibe_cs101 serve --host 0.0.0.0 --tls-cert fullchain.pem --tls-key privkey.pem
@@ -94,8 +96,14 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 - **Web UI** `server.py` + `web/`：架构参照 Vibe-Trading（后端 REST API + 单页
   前端），但保持零依赖：标准库 ThreadingHTTPServer + 无构建的原生 JS 单页应用。
   四个页面：💬 对话（多轮会话）、🔍 检索、📌 错题本、📈 学习进度。默认只监听
-  127.0.0.1；绑定非本机地址时必须设置 `VIBE_CS101_AUTH_KEY` 或
-  `VIBE_CS101_AUTH_KEYS`，并建议通过 `--tls-cert/--tls-key` 或反向代理启用 HTTPS。
+  127.0.0.1；绑定非本机地址时必须启用鉴权（环境变量 key 或 `user add` 创建的
+  用户），并建议通过 `--tls-cert/--tls-key` 或反向代理启用 HTTPS。
+- **会话持久化** `sessions.py`：每轮对话后把完整上下文存入 `data/sessions.db`，
+  服务重启后可从会话列表恢复继续；前端支持切换/删除历史会话。
+- **用户管理** `users.py`：`vibe-cs101 user add/list/reset/rm`，key 加盐 SHA-256
+  哈希存 `data/users.db`（不明文落盘），增删即时生效，与环境变量鉴权并存。
+- **限流** `ratelimit.py`：滑动窗口，按用户限 API/对话频率、按 IP 限鉴权失败
+  次数（防暴力试 key），超限返回 429 + Retry-After。
 
 ## 配置
 
@@ -107,6 +115,9 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 | `VIBE_CS101_DATA_DIR` | 数据目录，默认 `vibe-cs101/data/` |
 | `VIBE_CS101_AUTH_KEY` | Web UI 单用户访问密钥；设置后用户名为 `owner` |
 | `VIBE_CS101_AUTH_KEYS` | Web UI 多用户访问密钥，格式 `alice:k1,bob:k2` |
+| `VIBE_CS101_RATE_API` | 每用户普通 API 限流，格式 `N/秒数`，默认 `120/60`，`0` 不限 |
+| `VIBE_CS101_RATE_CHAT` | 每用户对话（LLM 调用）限流，默认 `10/60` |
+| `VIBE_CS101_RATE_AUTHFAIL` | 每 IP 鉴权失败限流（防暴力试 key），默认 `10/300` |
 
 远程部署时，`python3 -m vibe_cs101 serve --host 0.0.0.0` 会在未配置 Web UI
 鉴权时拒绝启动，避免把本地学习数据和 LLM 接口裸露到网络。浏览器登录后会把

@@ -9,11 +9,18 @@ API:
     GET  /api/search?q=&course=&limit= 全文检索
     GET  /api/section/{id}             读取章节全文
     POST /api/chat                     {message, session_id?} → {answer, events, session_id}
+    GET  /api/sessions                 会话列表（持久化于 data/sessions.db）
+    GET  /api/sessions/{id}            会话历史消息（前端可展示部分）
+    DELETE /api/sessions/{id}          删除会话
     GET  /api/mistakes?view=all|due    错题列表
     POST /api/mistakes                 记错题 {problem, course?, tags?, reason?, note?, section_id?}
     POST /api/mistakes/{id}/review     {result: good|again}
     DELETE /api/mistakes/{id}          删除
     GET  /api/mistakes/stats           进度统计
+
+鉴权：VIBE_CS101_AUTH_KEY(S) 环境变量 + `vibe-cs101 user add` 管理的持久化用户（二者并存）。
+限流：VIBE_CS101_RATE_API / _RATE_CHAT（按用户）、_RATE_AUTHFAIL（按 IP），超限返回 429。
+会话：每轮对话后持久化，服务重启后带 session_id 请求可无缝恢复上下文。
 """
 
 from __future__ import annotations
@@ -29,17 +36,25 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import journal, store
+from . import journal, ratelimit, sessions, store, users
 from .config import DB_PATH, load_auth_keys, load_llm_config
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_BODY = 1 << 20  # 1MB
-MAX_SESSIONS = 50
+MAX_SESSIONS = 50  # 内存中的活跃会话上限；被挤出的会话可随时从 sessions.db 恢复
 
-AUTH_KEYS: dict[str, str] = {}  # {username: key}; 空 = 未启用鉴权（仅本机模式）
+AUTH_KEYS: dict[str, str] = {}  # {username: key}; 来自环境变量；DB 用户见 users.py
+
+API_LIMITER = ratelimit.from_env("VIBE_CS101_RATE_API", "120/60")
+CHAT_LIMITER = ratelimit.from_env("VIBE_CS101_RATE_CHAT", "10/60")
+AUTH_FAIL_LIMITER = ratelimit.from_env("VIBE_CS101_RATE_AUTHFAIL", "10/300")
 
 _sessions: dict[tuple[str, str], dict] = {}  # (user, session_id) -> {"agent", "lock"}
 _sessions_lock = threading.Lock()
+
+
+def _auth_enabled() -> bool:
+    return bool(AUTH_KEYS) or users.has_users()
 
 
 def _get_session(user: str, session_id: str | None) -> tuple[str, dict]:
@@ -49,12 +64,14 @@ def _get_session(user: str, session_id: str | None) -> tuple[str, dict]:
         from .agent import Agent
 
         new_id = session_id or uuid.uuid4().hex[:12]
+        agent = Agent(tool_context={"journal_db": journal.user_db(user)})
+        if session_id:  # 内存中没有：尝试从持久化存储恢复上下文
+            saved = sessions.load(user, session_id)
+            if saved:
+                agent.messages = saved
         if len(_sessions) >= MAX_SESSIONS:
             _sessions.pop(next(iter(_sessions)))
-        _sessions[(user, new_id)] = {
-            "agent": Agent(tool_context={"journal_db": journal.user_db(user)}),
-            "lock": threading.Lock(),
-        }
+        _sessions[(user, new_id)] = {"agent": agent, "lock": threading.Lock()}
         return new_id, _sessions[(user, new_id)]
 
 
@@ -107,10 +124,22 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:  # quieter logs
         pass
 
-    # ---- auth ----------------------------------------------------------
+    # ---- auth / rate limit ---------------------------------------------
+    def _rate_limited(self, retry_after: float, what: str = "请求") -> None:
+        wait = max(1, int(retry_after + 0.999))
+        body = json.dumps(
+            {"error": f"{what}过于频繁，请 {wait} 秒后重试"}, ensure_ascii=False
+        ).encode("utf-8")
+        self.send_response(429)
+        self.send_header("Retry-After", str(wait))
+        self.send_header("Content-Type", "application/json; charset=utf-8")
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     def _authenticate(self) -> str | None:
         """Return the username, or None if auth is required and failed."""
-        if not AUTH_KEYS:
+        if not _auth_enabled():
             return "owner"  # 未启用鉴权：仅本机模式（serve() 保证非本机必须配 key）
         header = self.headers.get("Authorization", "")
         presented = header[7:].strip() if header.lower().startswith("bearer ") else ""
@@ -119,11 +148,20 @@ class Handler(BaseHTTPRequestHandler):
             for user, key in AUTH_KEYS.items():
                 if hmac.compare_digest(presented, key):
                     return user
+            return users.verify_key(presented)
         return None
 
     def _require_auth(self) -> str | None:
+        """鉴权 + 通用限流。返回用户名；失败时已发送响应，调用方直接 return。"""
+        ip = self.client_address[0]
+        if _auth_enabled():
+            wait = AUTH_FAIL_LIMITER.retry_after(ip)
+            if wait > 0:
+                self._rate_limited(wait, "鉴权失败")
+                return None
         user = self._authenticate()
         if user is None:
+            AUTH_FAIL_LIMITER.hit(ip)
             self.send_response(401)
             self.send_header("WWW-Authenticate", 'Bearer realm="vibe-cs101"')
             body = json.dumps({"error": "需要 API key（Authorization: Bearer <key>）"}).encode()
@@ -131,6 +169,11 @@ class Handler(BaseHTTPRequestHandler):
             self.send_header("Content-Length", str(len(body)))
             self.end_headers()
             self.wfile.write(body)
+            return None
+        wait = API_LIMITER.hit(user)
+        if wait > 0:
+            self._rate_limited(wait)
+            return None
         return user
 
     # ---- static --------------------------------------------------------
@@ -170,7 +213,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             if url.path == "/api/me":
-                self._json({"user": user, "auth_enabled": bool(AUTH_KEYS)})
+                self._json({"user": user, "auth_enabled": _auth_enabled()})
             elif url.path == "/api/info":
                 cfg = load_llm_config()
                 self._json(
@@ -194,6 +237,16 @@ class Handler(BaseHTTPRequestHandler):
             elif m := re.fullmatch(r"/api/section/(\d+)", url.path):
                 section = store.get_section(int(m.group(1)))
                 self._json(section) if section else self._error(404, "section not found")
+            elif url.path == "/api/sessions":
+                self._json({"sessions": sessions.list_sessions(user)})
+            elif m := re.fullmatch(r"/api/sessions/([A-Za-z0-9-]{1,64})", url.path):
+                msgs = sessions.load(user, m.group(1))
+                if msgs is None:
+                    self._error(404, "session not found")
+                else:
+                    self._json(
+                        {"session_id": m.group(1), "messages": sessions.display_messages(msgs)}
+                    )
             elif url.path == "/api/mistakes/stats":
                 self._json(journal.stats(db_path=journal.user_db(user)))
             elif url.path == "/api/mistakes":
@@ -222,6 +275,10 @@ class Handler(BaseHTTPRequestHandler):
                 if not message:
                     self._error(400, "message 不能为空")
                     return
+                wait = CHAT_LIMITER.hit(user)
+                if wait > 0:
+                    self._rate_limited(wait, "对话")
+                    return
                 session_id, sess = _get_session(user, data.get("session_id"))
                 events: list[str] = []
                 with sess["lock"]:
@@ -232,12 +289,17 @@ class Handler(BaseHTTPRequestHandler):
                     except Exception as exc:  # noqa: BLE001 - surface LLM errors as JSON
                         self._json({"error": str(exc), "session_id": session_id}, 502)
                         return
+                    sessions.save(user, session_id, agent.messages)
                 self._json({"answer": answer, "events": events, "session_id": session_id})
             elif url.path == "/api/chat/stream":
                 data = self._body()
                 message = str(data.get("message", "")).strip()
                 if not message:
                     self._error(400, "message 不能为空")
+                    return
+                wait = CHAT_LIMITER.hit(user)
+                if wait > 0:
+                    self._rate_limited(wait, "对话")
                     return
                 session_id, sess = _get_session(user, data.get("session_id"))
                 self._sse_start()
@@ -249,6 +311,9 @@ class Handler(BaseHTTPRequestHandler):
                             self._sse(event)
                     except Exception as exc:  # noqa: BLE001 - stream errors as events
                         self._sse({"type": "error", "error": str(exc)})
+                    else:
+                        # 出错的轮次不落盘：消息尾部可能残留未完成的 tool_calls
+                        sessions.save(user, session_id, agent.messages)
             elif url.path == "/api/mistakes":
                 data = self._body()
                 m = journal.add_mistake(
@@ -282,6 +347,11 @@ class Handler(BaseHTTPRequestHandler):
         if m := re.fullmatch(r"/api/mistakes/(\d+)", url.path):
             deleted = journal.delete_mistake(int(m.group(1)), db_path=journal.user_db(user))
             self._json({"deleted": deleted}) if deleted else self._error(404, "not found")
+        elif m := re.fullmatch(r"/api/sessions/([A-Za-z0-9-]{1,64})", url.path):
+            deleted = sessions.delete(user, m.group(1))
+            with _sessions_lock:
+                _sessions.pop((user, m.group(1)), None)
+            self._json({"deleted": deleted}) if deleted else self._error(404, "not found")
         else:
             self._error(404, "unknown endpoint")
 
@@ -292,13 +362,17 @@ def serve(
     tls_cert: str | None = None,
     tls_key: str | None = None,
 ) -> None:
-    global AUTH_KEYS
-    AUTH_KEYS = load_auth_keys()
+    global AUTH_KEYS, API_LIMITER, CHAT_LIMITER, AUTH_FAIL_LIMITER
+    AUTH_KEYS = load_auth_keys()  # 同时加载 .env，之后再读限流环境变量
+    API_LIMITER = ratelimit.from_env("VIBE_CS101_RATE_API", "120/60")
+    CHAT_LIMITER = ratelimit.from_env("VIBE_CS101_RATE_CHAT", "10/60")
+    AUTH_FAIL_LIMITER = ratelimit.from_env("VIBE_CS101_RATE_AUTHFAIL", "10/300")
 
-    if not _is_loopback(host) and not AUTH_KEYS:
+    if not _is_loopback(host) and not _auth_enabled():
         raise SystemExit(
             f"拒绝在 {host} 上无鉴权启动。远程访问必须设置 VIBE_CS101_AUTH_KEY=<key>"
-            "（或多用户 VIBE_CS101_AUTH_KEYS=name:key,name:key），"
+            "（或多用户 VIBE_CS101_AUTH_KEYS=name:key,name:key，"
+            "或用 `vibe-cs101 user add <name>` 创建用户），"
             "否则请使用默认的 127.0.0.1 仅本机访问。"
         )
     if not _is_loopback(host) and not tls_cert:
@@ -312,7 +386,8 @@ def serve(
         httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
         scheme = "https"
 
-    who = f"{len(AUTH_KEYS)} 个用户（鉴权已启用）" if AUTH_KEYS else "仅本机、未启用鉴权"
+    n_users = len(AUTH_KEYS) + len(users.list_users())
+    who = f"{n_users} 个用户（鉴权已启用）" if _auth_enabled() else "仅本机、未启用鉴权"
     print(f"Vibe-cs101 Web UI: {scheme}://{host}:{port}  [{who}]  (Ctrl-C 退出)")
     try:
         httpd.serve_forever()

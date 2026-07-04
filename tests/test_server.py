@@ -7,18 +7,23 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from vibe_cs101 import journal, server
+from vibe_cs101 import journal, server, sessions, users
+from vibe_cs101.ratelimit import RateLimiter
 
 
 class ServerTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls._tmp = tempfile.TemporaryDirectory()
-        # 把错题本指到临时目录，避免测试写入真实 data/
+        # 把错题本/会话/用户库指到临时目录，避免测试写入真实 data/
         cls._orig_journal_db = journal.JOURNAL_DB
         cls._orig_data_dir = journal.DATA_DIR
+        cls._orig_sessions_db = sessions.SESSIONS_DB
+        cls._orig_users_db = users.USERS_DB
         journal.JOURNAL_DB = Path(cls._tmp.name) / "journal.db"
         journal.DATA_DIR = Path(cls._tmp.name)
+        sessions.SESSIONS_DB = Path(cls._tmp.name) / "sessions.db"
+        users.USERS_DB = Path(cls._tmp.name) / "users.db"
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
@@ -29,10 +34,17 @@ class ServerTests(unittest.TestCase):
         cls.httpd.server_close()
         journal.JOURNAL_DB = cls._orig_journal_db
         journal.DATA_DIR = cls._orig_data_dir
+        sessions.SESSIONS_DB = cls._orig_sessions_db
+        users.USERS_DB = cls._orig_users_db
         cls._tmp.cleanup()
 
     def setUp(self):
         server.AUTH_KEYS = {}
+        server.API_LIMITER = RateLimiter(0)  # 0 = 不限流
+        server.CHAT_LIMITER = RateLimiter(0)
+        server.AUTH_FAIL_LIMITER = RateLimiter(0)
+        sessions.SESSIONS_DB.unlink(missing_ok=True)
+        users.USERS_DB.unlink(missing_ok=True)
         with server._sessions_lock:
             server._sessions.clear()
 
@@ -162,6 +174,93 @@ class ServerTests(unittest.TestCase):
         self.assertIsNot(alice_sess, bob_sess)
         self.assertEqual(alice_sess["agent"].tool_context["journal_db"], journal.user_db("alice"))
         self.assertEqual(bob_sess["agent"].tool_context["journal_db"], journal.user_db("bob"))
+
+    def _stub_agent(self, sess):
+        sess["agent"].chat_fn = lambda cfg, messages, tools=None, temperature=0.3: {
+            "content": f"echo: {messages[-1]['content']}", "tool_calls": None,
+        }
+
+    def test_chat_session_persists_and_survives_memory_eviction(self):
+        session_id, sess = server._get_session("owner", None)
+        self._stub_agent(sess)
+        status, _ = self.request("/api/chat", "POST", {"message": "第一问", "session_id": session_id})
+        self.assertEqual(status, 200)
+
+        # 会话列表 / 历史消息端点
+        status, data = self.request("/api/sessions")
+        self.assertEqual(status, 200)
+        self.assertEqual([s["id"] for s in data["sessions"]], [session_id])
+        self.assertTrue(data["sessions"][0]["title"].startswith("第一问"))
+        status, data = self.request(f"/api/sessions/{session_id}")
+        self.assertEqual(status, 200)
+        self.assertEqual(
+            data["messages"], [{"role": "user", "content": "第一问"}, {"role": "assistant", "content": "echo: 第一问"}]
+        )
+
+        # 模拟服务重启/内存淘汰：内存清空后按 session_id 仍能恢复完整上下文
+        with server._sessions_lock:
+            server._sessions.clear()
+        new_id, restored = server._get_session("owner", session_id)
+        self.assertEqual(new_id, session_id)
+        contents = [m.get("content") for m in restored["agent"].messages]
+        self.assertIn("第一问", contents)
+        self.assertIn("echo: 第一问", contents)
+
+    def test_session_delete_endpoint(self):
+        session_id, sess = server._get_session("owner", None)
+        self._stub_agent(sess)
+        self.request("/api/chat", "POST", {"message": "hi", "session_id": session_id})
+        status, data = self.request(f"/api/sessions/{session_id}", "DELETE")
+        self.assertEqual(status, 200)
+        self.assertTrue(data["deleted"])
+        status, _ = self.request(f"/api/sessions/{session_id}")
+        self.assertEqual(status, 404)
+        status, _ = self.request(f"/api/sessions/{session_id}", "DELETE")
+        self.assertEqual(status, 404)
+
+    def test_sessions_endpoint_isolated_per_user(self):
+        server.AUTH_KEYS = {"alice": "alice-key", "bob": "bob-key"}
+        session_id, sess = server._get_session("alice", None)
+        self._stub_agent(sess)
+        self.request("/api/chat", "POST", {"message": "alice 的会话", "session_id": session_id}, key="alice-key")
+        status, data = self.request("/api/sessions", key="bob-key")
+        self.assertEqual(data["sessions"], [])
+        status, data = self.request(f"/api/sessions/{session_id}", key="bob-key")
+        self.assertEqual(status, 404)
+
+    def test_chat_rate_limit_returns_429(self):
+        server.CHAT_LIMITER = RateLimiter(1, window_s=60)
+        session_id, sess = server._get_session("owner", None)
+        self._stub_agent(sess)
+        status, _ = self.request("/api/chat", "POST", {"message": "1", "session_id": session_id})
+        self.assertEqual(status, 200)
+        status, data = self.request("/api/chat", "POST", {"message": "2", "session_id": session_id})
+        self.assertEqual(status, 429)
+        self.assertIn("频繁", data["error"])
+
+    def test_api_rate_limit_returns_429(self):
+        server.API_LIMITER = RateLimiter(2, window_s=60)
+        self.assertEqual(self.request("/api/me")[0], 200)
+        self.assertEqual(self.request("/api/me")[0], 200)
+        self.assertEqual(self.request("/api/me")[0], 429)
+
+    def test_db_users_can_authenticate(self):
+        key = users.add_user("carol")
+        status, data = self.request("/api/me")  # 有 DB 用户 → 鉴权已启用
+        self.assertEqual(status, 401)
+        status, data = self.request("/api/me", key=key)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["user"], "carol")
+        self.assertTrue(data["auth_enabled"])
+
+    def test_auth_failures_are_rate_limited(self):
+        server.AUTH_KEYS = {"alice": "alice-key"}
+        server.AUTH_FAIL_LIMITER = RateLimiter(2, window_s=60)
+        self.assertEqual(self.request("/api/me", key="bad-1")[0], 401)
+        self.assertEqual(self.request("/api/me", key="bad-2")[0], 401)
+        self.assertEqual(self.request("/api/me", key="bad-3")[0], 429)
+        # 正确的 key 也被同 IP 的失败限流挡住，直到窗口过期——这是防暴力破解的预期行为
+        self.assertEqual(self.request("/api/me", key="alice-key")[0], 429)
 
     def test_remote_serve_requires_auth_key(self):
         with patch("vibe_cs101.server.load_auth_keys", return_value={}):
