@@ -1,5 +1,9 @@
 # Vibe-cs101: 个人计算机基础学习智能体
 
+[![CI](https://github.com/GMyhf/Vibe-CS101/actions/workflows/ci.yml/badge.svg)](https://github.com/GMyhf/Vibe-CS101/actions/workflows/ci.yml)
+[![Update index](https://github.com/GMyhf/Vibe-CS101/actions/workflows/update-index.yml/badge.svg)](https://github.com/GMyhf/Vibe-CS101/actions/workflows/update-index.yml)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 类似 [Vibe-Trading](https://github.com/GMyhf/Vibe-Trading) 的个人学习智能体：
 智能搜集任课老师的 **cs101（计算概论B）/ cs201（数据结构与算法B）** 课件与题解，
 建立本地全文索引，并通过带工具调用的 LLM 智能体回答问题——回答以老师的资料为根据并注明出处。
@@ -91,6 +95,8 @@ python3 -m unittest discover -s tests        # 纯标准库，无需安装任何
 ## Roadmap
 
 - [x] MCP server，把 search/read 工具暴露给 Claude Code 等客户端
+- [x] 定时自动 update + index（GitHub Actions 每周一重建，索引发布在
+      [data-latest release](https://github.com/GMyhf/Vibe-CS101/releases/tag/data-latest)，
+      下载 `index.db` 放到 `data/` 即可跳过 update/index 步骤）
 - [ ] Web UI（参照 Vibe-Trading 的 FastAPI + React 架构）
 - [ ] 错题本 / 学习进度跟踪（参照 Vibe-Trading 的 Shadow Account 思路）
-- [ ] 定时自动 update + index（GitHub Actions 或本地 cron）

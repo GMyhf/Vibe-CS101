@@ -1,0 +1,54 @@
+name: Update index
+
+# 每周一 02:23 UTC 自动抓取上游题解 + 克隆课件仓库，重建全文索引，
+# 并把 index.db 发布到 `data-latest` release，供直接下载使用。
+on:
+  schedule:
+    - cron: "23 2 * * 1"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-index:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          path: vibe-cs101
+
+      # 课件仓库需要作为本仓库的同级目录（indexer 按 ../ 相对路径查找）
+      - name: Clone courseware repos
+        run: |
+          git clone --depth 1 https://github.com/GMyhf/2025fall-cs101.git
+          git clone --depth 1 https://github.com/GMyhf/2026spring-cs201.git
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Fetch upstream solutions
+        working-directory: vibe-cs101
+        run: python -m vibe_cs101 update
+
+      - name: Build index
+        working-directory: vibe-cs101
+        run: python -m vibe_cs101 index
+
+      - name: Smoke-test search
+        working-directory: vibe-cs101
+        run: |
+          python -m vibe_cs101 search "动态规划" --limit 3
+          python -m vibe_cs101 search "接雨水" --limit 3
+
+      - name: Publish index to data-latest release
+        working-directory: vibe-cs101
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view data-latest --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 || \
+            gh release create data-latest --repo "$GITHUB_REPOSITORY" \
+              --title "Prebuilt index (auto-updated)" \
+              --notes "每周自动重建的全文索引。下载 index.db 放到 vibe-cs101/data/ 即可跳过 update/index 步骤。"
+          gh release upload data-latest data/index.db --repo "$GITHUB_REPOSITORY" --clobber
