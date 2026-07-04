@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import os
 from collections.abc import Iterator
 from typing import Callable
 
@@ -11,7 +12,23 @@ from .llm import chat, stream_chat
 from .tools import TOOL_SCHEMAS, run_tool
 
 MAX_ITERATIONS = 12
-MAX_READ_SECTION_CALLS = 3
+MAX_READ_SECTION_CALLS = 3  # 默认值；可用 VIBE_CS101_MAX_READ_SECTIONS 调整
+
+
+def _max_read_calls() -> int:
+    return int(os.environ.get("VIBE_CS101_MAX_READ_SECTIONS", "") or MAX_READ_SECTION_CALLS)
+
+
+def _read_limit_error(limit: int) -> str:
+    return json.dumps(
+        {
+            "error": (
+                f"本轮最多读取 {limit} 个章节。请基于已读取资料回答；"
+                "如需更多细节，请让用户缩小问题范围。"
+            )
+        },
+        ensure_ascii=False,
+    )
 
 SYSTEM_PROMPT = """\
 你是 Vibe-cs101，一位个人计算机基础学习助教，服务于北大《计算概论B（cs101）》和\
@@ -55,6 +72,7 @@ class Agent:
         """Run one user turn through the tool loop; returns the final answer."""
         self.messages.append({"role": "user", "content": user_message})
         read_section_calls = 0
+        max_reads = _max_read_calls()
 
         for _ in range(MAX_ITERATIONS):
             tools = TOOL_SCHEMAS if _ < MAX_ITERATIONS - 1 else None
@@ -76,16 +94,8 @@ class Agent:
                 self.on_event(f"🔧 {name}({args[:120]})")
                 if name == "read_section":
                     read_section_calls += 1
-                    if read_section_calls > MAX_READ_SECTION_CALLS:
-                        result = json.dumps(
-                            {
-                                "error": (
-                                    "本轮最多读取 3 个章节。请基于已读取资料回答；"
-                                    "如需更多细节，请让用户缩小问题范围。"
-                                )
-                            },
-                            ensure_ascii=False,
-                        )
+                    if read_section_calls > max_reads:
+                        result = _read_limit_error(max_reads)
                     else:
                         result = run_tool(name, args, self.tool_context)
                 else:
@@ -104,6 +114,7 @@ class Agent:
         """Run the tool loop, then stream the final assistant answer as events."""
         self.messages.append({"role": "user", "content": user_message})
         read_section_calls = 0
+        max_reads = _max_read_calls()
 
         for _ in range(MAX_ITERATIONS - 1):
             msg = self.chat_fn(self.cfg, self.messages, tools=TOOL_SCHEMAS)
@@ -131,16 +142,8 @@ class Agent:
                 yield {"type": "event", "text": event}
                 if name == "read_section":
                     read_section_calls += 1
-                    if read_section_calls > MAX_READ_SECTION_CALLS:
-                        result = json.dumps(
-                            {
-                                "error": (
-                                    "本轮最多读取 3 个章节。请基于已读取资料回答；"
-                                    "如需更多细节，请让用户缩小问题范围。"
-                                )
-                            },
-                            ensure_ascii=False,
-                        )
+                    if read_section_calls > max_reads:
+                        result = _read_limit_error(max_reads)
                     else:
                         result = run_tool(name, args, self.tool_context)
                 else:

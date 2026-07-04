@@ -49,6 +49,27 @@ class ToolContextTests(unittest.TestCase):
         self.assertLess(len(result["content"]), MAX_SECTION_CHARS + 120)
         self.assertIn("内容已截断", result["content"])
 
+    def test_read_section_limit_configurable_via_env(self):
+        section = {
+            "section_id": 1,
+            "source": "test",
+            "course": "cs101",
+            "kind": "courseware",
+            "file": "x.md",
+            "title": "Long",
+            "content": "a" * 300,
+        }
+        with patch("vibe_cs101.tools.store.get_section", return_value=section), \
+             patch.dict("os.environ", {"VIBE_CS101_MAX_SECTION_CHARS": "100"}):
+            result = json.loads(run_tool("read_section", '{"section_id":1}'))
+        self.assertTrue(result["truncated"])
+        self.assertIn("只返回前 100 字", result["content"])
+        # 放宽后不截断
+        with patch("vibe_cs101.tools.store.get_section", return_value=section), \
+             patch.dict("os.environ", {"VIBE_CS101_MAX_SECTION_CHARS": "1000"}):
+            result = json.loads(run_tool("read_section", '{"section_id":1}'))
+        self.assertNotIn("truncated", result)
+
 
 if __name__ == "__main__":
     unittest.main()

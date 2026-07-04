@@ -118,6 +118,8 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 | `VIBE_CS101_RATE_API` | 每用户普通 API 限流，格式 `N/秒数`，默认 `120/60`，`0` 不限 |
 | `VIBE_CS101_RATE_CHAT` | 每用户对话（LLM 调用）限流，默认 `10/60` |
 | `VIBE_CS101_RATE_AUTHFAIL` | 每 IP 鉴权失败限流（防暴力试 key），默认 `10/300` |
+| `VIBE_CS101_MAX_SECTION_CHARS` | read_section 单次返回字数上限，默认 `6000` |
+| `VIBE_CS101_MAX_READ_SECTIONS` | 每轮对话最多读取的章节数，默认 `3` |
 
 远程部署时，`python3 -m vibe_cs101 serve --host 0.0.0.0` 会在未配置 Web UI
 鉴权时拒绝启动，避免把本地学习数据和 LLM 接口裸露到网络。浏览器登录后会把

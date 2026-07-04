@@ -84,8 +84,14 @@
   .msg.bot ul, .msg.bot ol { margin: 8px 0; padding-left: 24px; }
   .msg.bot li { margin: 3px 0; }
   .msg.bot code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
-  .msg.bot pre { background: var(--code-bg); padding: 10px; border-radius: 8px; overflow-x: auto; white-space: pre; }
+  .msg.bot pre { background: var(--code-bg); padding: 10px; border-radius: 8px; overflow-x: auto;
+                 white-space: pre; position: relative; }
   .msg.bot pre code { background: none; padding: 0; }
+  .code-copy { position: absolute; top: 6px; right: 6px; border: 1px solid var(--border);
+               background: var(--card); color: var(--muted); border-radius: 6px;
+               font-size: 12px; padding: 3px 8px; cursor: pointer; opacity: 0; transition: opacity .15s; }
+  .msg.bot pre:hover .code-copy { opacity: 1; }
+  .code-copy:hover { color: var(--ink); }
   .msg.bot table { display: block; width: 100%; overflow-x: auto; margin: 10px 0;
          border-collapse: collapse; font-size: 13px; }
   .msg.bot th, .msg.bot td { border: 1px solid var(--border); padding: 6px 8px; }
@@ -552,8 +558,20 @@ async function copyText(btn, text) {
   btn.textContent = '✓ 已复制';
   setTimeout(() => { btn.textContent = old; }, 1200);
 }
+function addCodeCopyButtons(div) {
+  div.querySelectorAll('.content pre').forEach(pre => {
+    if (pre.querySelector('.code-copy')) return;
+    const btn = document.createElement('button');
+    btn.className = 'code-copy';
+    btn.textContent = '⧉ 复制';
+    btn.title = '复制代码';
+    btn.onclick = () => copyText(btn, pre.querySelector('code').textContent);
+    pre.appendChild(btn);
+  });
+}
 function finishBotMsg(div, rawText, seconds, events) {
   div.querySelector('.content').innerHTML = mdLite(rawText);
+  addCodeCopyButtons(div);
   if (events && events.length) {
     const ev = document.createElement('div');
     ev.className = 'events';

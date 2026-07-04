@@ -79,6 +79,25 @@ class AgentLoopTests(unittest.TestCase):
         self.assertEqual(len(tool_msgs), 4)
         self.assertIn("本轮最多读取 3 个章节", tool_msgs[-1]["content"])
 
+    def test_read_section_limit_configurable_via_env(self):
+        from unittest.mock import patch
+
+        tool_calls = [
+            {"id": f"c{i}", "function": {"name": "read_section", "arguments": '{"section_id": 1}'}}
+            for i in range(4)
+        ]
+        agent, _calls = make_agent(
+            [
+                {"content": "", "tool_calls": tool_calls},
+                {"content": "ok", "tool_calls": None},
+            ]
+        )
+        with patch.dict("os.environ", {"VIBE_CS101_MAX_READ_SECTIONS": "4"}):
+            agent.ask("x")
+        tool_msgs = [m for m in agent.messages if m["role"] == "tool"]
+        self.assertEqual(len(tool_msgs), 4)
+        self.assertNotIn("本轮最多读取", tool_msgs[-1]["content"])
+
 
 if __name__ == "__main__":
     unittest.main()
