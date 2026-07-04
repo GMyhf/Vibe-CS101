@@ -22,8 +22,14 @@
 
 零第三方依赖（仅 Python 3.11+ 标准库，含测试）。
 
+> 🎓 **同学们看这里** → [学生使用教程 TUTORIAL.md](TUTORIAL.md)：
+> `git clone` + `python3 -m vibe_cs101 quickstart` 两条命令即可离线检索，无需 API key。
+
 ```bash
 cd vibe-cs101
+
+# 0.（推荐）一键初始化：下载每周预构建的索引，跳过下面 1-2 两步
+python3 -m vibe_cs101 quickstart
 
 # 1. 下载/更新上游题解（约 20MB，ETag 缓存，重复运行只拉取变更）
 python3 -m vibe_cs101 update

@@ -79,6 +79,35 @@ def fetch_source(source: RemoteSource) -> FetchResult:
     return FetchResult(source.name, "updated", f"{len(body):,} bytes")
 
 
+INDEX_RELEASE_URL = "https://github.com/GMyhf/Vibe-CS101/releases/download/data-latest/index.db"
+
+
+def download_prebuilt_index(url: str = INDEX_RELEASE_URL, on_progress=None) -> int:
+    """下载每周自动构建的 index.db（含课件 + 全部题解），返回字节数。
+
+    下载到临时文件、校验 SQLite 文件头后原子替换，避免中断留下坏索引。
+    """
+    from .config import DB_PATH
+
+    DB_PATH.parent.mkdir(parents=True, exist_ok=True)
+    tmp = DB_PATH.with_suffix(".db.part")
+    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    done = 0
+    with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp, open(tmp, "wb") as out:
+        total = int(resp.headers.get("Content-Length") or 0)
+        while chunk := resp.read(1 << 20):
+            out.write(chunk)
+            done += len(chunk)
+            if on_progress:
+                on_progress(done, total)
+    with open(tmp, "rb") as f:
+        if f.read(16) != b"SQLite format 3\x00":
+            tmp.unlink(missing_ok=True)
+            raise ValueError("下载内容不是有效的 SQLite 索引文件")
+    tmp.replace(DB_PATH)
+    return done
+
+
 def fetch_all(retries: int = 2) -> list[FetchResult]:
     """Fetch all sources in parallel, retrying transient failures."""
     from concurrent.futures import ThreadPoolExecutor

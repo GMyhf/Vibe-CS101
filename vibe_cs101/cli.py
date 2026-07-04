@@ -15,6 +15,29 @@ BANNER = f"""\
 └─────────────────────────────────────────────┘"""
 
 
+def cmd_quickstart(_args: argparse.Namespace) -> int:
+    """一条命令完成初始化：下载每周预构建的全文索引（含课件+题解）。"""
+    from .fetch import INDEX_RELEASE_URL, download_prebuilt_index
+
+    print("正在下载预构建索引（每周一自动更新，含课件与全部题解）…")
+
+    def progress(done: int, total: int) -> None:
+        if total:
+            print(f"\r  {done // (1 << 20)}MB / {total // (1 << 20)}MB", end="", flush=True)
+
+    try:
+        size = download_prebuilt_index(on_progress=progress)
+    except Exception as exc:  # noqa: BLE001
+        print(f"\n❌ 下载失败：{exc}", file=sys.stderr)
+        print(f"   可稍后重试，或手动下载 {INDEX_RELEASE_URL} 放到 {DB_PATH}", file=sys.stderr)
+        print("   也可以自行构建：vibe-cs101 update && vibe-cs101 index（题解部分）", file=sys.stderr)
+        return 1
+    print(f"\n✅ 索引就绪（{size / (1 << 20):.1f}MB → {DB_PATH}）")
+    print("试试：python3 -m vibe_cs101 search \"动态规划\"")
+    print("配置 LLM key 后可对话：python3 -m vibe_cs101 chat（见 README）")
+    return 0
+
+
 def cmd_update(_args: argparse.Namespace) -> int:
     from .fetch import fetch_all
 
@@ -195,6 +218,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--version", action="version", version=f"vibe-cs101 {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
 
+    sub.add_parser("quickstart", help="一键初始化：下载预构建索引（推荐新同学）").set_defaults(fn=cmd_quickstart)
     sub.add_parser("update", help="下载/更新上游题解").set_defaults(fn=cmd_update)
     sub.add_parser("index", help="重建全文索引").set_defaults(fn=cmd_index)
 
