@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -118,6 +119,33 @@ class LLMConfig:
     @property
     def configured(self) -> bool:
         return bool(self.api_key)
+
+
+def load_auth_keys() -> dict[str, str]:
+    """Resolve Web UI auth keys: {username: key}.
+
+    - VIBE_CS101_AUTH_KEY=<key>              单人：用户名固定为 "owner"
+    - VIBE_CS101_AUTH_KEYS=alice:k1,bob:k2   多人：每人一把 key
+    两者都设时合并（AUTH_KEYS 中的同名用户优先）。返回空 dict 表示未启用鉴权。
+    """
+    _load_dotenv()
+    keys: dict[str, str] = {}
+    single = os.environ.get("VIBE_CS101_AUTH_KEY", "").strip()
+    if single:
+        keys["owner"] = single
+    multi = os.environ.get("VIBE_CS101_AUTH_KEYS", "").strip()
+    for pair in multi.split(","):
+        pair = pair.strip()
+        if not pair:
+            continue
+        name, sep, key = pair.partition(":")
+        name, key = name.strip(), key.strip()
+        if not sep or not name or not key:
+            raise ValueError(f"VIBE_CS101_AUTH_KEYS 格式错误（应为 name:key,name:key）: {pair!r}")
+        if not re.fullmatch(r"[A-Za-z0-9_-]{1,32}", name):
+            raise ValueError(f"用户名只能含字母/数字/_/-（≤32 字符）: {name!r}")
+        keys[name] = key
+    return keys
 
 
 def load_llm_config() -> LLMConfig:

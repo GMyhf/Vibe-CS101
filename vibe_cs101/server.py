@@ -18,8 +18,11 @@ API:
 
 from __future__ import annotations
 
+import hmac
+import ipaddress
 import json
 import re
+import ssl
 import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -27,27 +30,41 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 from . import journal, store
-from .config import DB_PATH, load_llm_config
+from .config import DB_PATH, load_auth_keys, load_llm_config
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
 MAX_BODY = 1 << 20  # 1MB
 MAX_SESSIONS = 50
 
-_sessions: dict[str, dict] = {}  # session_id -> {"agent": Agent, "lock": Lock}
+AUTH_KEYS: dict[str, str] = {}  # {username: key}; 空 = 未启用鉴权（仅本机模式）
+
+_sessions: dict[tuple[str, str], dict] = {}  # (user, session_id) -> {"agent", "lock"}
 _sessions_lock = threading.Lock()
 
 
-def _get_session(session_id: str | None) -> tuple[str, dict]:
+def _get_session(user: str, session_id: str | None) -> tuple[str, dict]:
     with _sessions_lock:
-        if session_id and session_id in _sessions:
-            return session_id, _sessions[session_id]
+        if session_id and (user, session_id) in _sessions:
+            return session_id, _sessions[(user, session_id)]
         from .agent import Agent
 
         new_id = session_id or uuid.uuid4().hex[:12]
         if len(_sessions) >= MAX_SESSIONS:
             _sessions.pop(next(iter(_sessions)))
-        _sessions[new_id] = {"agent": Agent(), "lock": threading.Lock()}
-        return new_id, _sessions[new_id]
+        _sessions[(user, new_id)] = {
+            "agent": Agent(tool_context={"journal_db": journal.user_db(user)}),
+            "lock": threading.Lock(),
+        }
+        return new_id, _sessions[(user, new_id)]
+
+
+def _is_loopback(host: str) -> bool:
+    if host in ("localhost",):
+        return True
+    try:
+        return ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        return False
 
 
 class Handler(BaseHTTPRequestHandler):
@@ -78,11 +95,42 @@ class Handler(BaseHTTPRequestHandler):
     def log_message(self, fmt: str, *args: object) -> None:  # quieter logs
         pass
 
+    # ---- auth ----------------------------------------------------------
+    def _authenticate(self) -> str | None:
+        """Return the username, or None if auth is required and failed."""
+        if not AUTH_KEYS:
+            return "owner"  # 未启用鉴权：仅本机模式（serve() 保证非本机必须配 key）
+        header = self.headers.get("Authorization", "")
+        presented = header[7:].strip() if header.lower().startswith("bearer ") else ""
+        presented = presented or self.headers.get("X-API-Key", "").strip()
+        if presented:
+            for user, key in AUTH_KEYS.items():
+                if hmac.compare_digest(presented, key):
+                    return user
+        return None
+
+    def _require_auth(self) -> str | None:
+        user = self._authenticate()
+        if user is None:
+            self.send_response(401)
+            self.send_header("WWW-Authenticate", 'Bearer realm="vibe-cs101"')
+            body = json.dumps({"error": "需要 API key（Authorization: Bearer <key>）"}).encode()
+            self.send_header("Content-Type", "application/json; charset=utf-8")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
+        return user
+
     # ---- static --------------------------------------------------------
     def _serve_static(self, path: str) -> None:
         name = "index.html" if path in ("/", "") else path.lstrip("/")
         file = (WEB_DIR / name).resolve()
-        if not str(file).startswith(str(WEB_DIR)) or not file.is_file():
+        try:
+            file.relative_to(WEB_DIR)
+        except ValueError:
+            self._error(404, "not found")
+            return
+        if not file.is_file():
             self._error(404, "not found")
             return
         ctype = {
@@ -102,8 +150,16 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self) -> None:  # noqa: N802
         url = urlparse(self.path)
         q = parse_qs(url.query)
+        if not url.path.startswith("/api/"):
+            self._serve_static(url.path)
+            return
+        user = self._require_auth()
+        if user is None:
+            return
         try:
-            if url.path == "/api/info":
+            if url.path == "/api/me":
+                self._json({"user": user, "auth_enabled": bool(AUTH_KEYS)})
+            elif url.path == "/api/info":
                 cfg = load_llm_config()
                 self._json(
                     {
@@ -127,24 +183,26 @@ class Handler(BaseHTTPRequestHandler):
                 section = store.get_section(int(m.group(1)))
                 self._json(section) if section else self._error(404, "section not found")
             elif url.path == "/api/mistakes/stats":
-                self._json(journal.stats())
+                self._json(journal.stats(db_path=journal.user_db(user)))
             elif url.path == "/api/mistakes":
                 view = q.get("view", ["all"])[0]
                 mistakes = journal.list_mistakes(
                     due_only=(view == "due"),
                     course=q.get("course", [None])[0] or None,
                     tag=q.get("tag", [None])[0] or None,
+                    db_path=journal.user_db(user),
                 )
                 self._json({"mistakes": [m.to_dict() for m in mistakes]})
-            elif url.path.startswith("/api/"):
-                self._error(404, "unknown endpoint")
             else:
-                self._serve_static(url.path)
+                self._error(404, "unknown endpoint")
         except Exception as exc:  # noqa: BLE001
             self._error(500, str(exc))
 
     def do_POST(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        user = self._require_auth()
+        if user is None:
+            return
         try:
             if url.path == "/api/chat":
                 data = self._body()
@@ -152,7 +210,7 @@ class Handler(BaseHTTPRequestHandler):
                 if not message:
                     self._error(400, "message 不能为空")
                     return
-                session_id, sess = _get_session(data.get("session_id"))
+                session_id, sess = _get_session(user, data.get("session_id"))
                 events: list[str] = []
                 with sess["lock"]:
                     agent = sess["agent"]
@@ -172,11 +230,14 @@ class Handler(BaseHTTPRequestHandler):
                     reason=str(data.get("reason", "") or ""),
                     note=str(data.get("note", "") or ""),
                     section_id=data.get("section_id"),
+                    db_path=journal.user_db(user),
                 )
                 self._json({"mistake": m.to_dict()}, 201)
             elif m := re.fullmatch(r"/api/mistakes/(\d+)/review", url.path):
                 data = self._body()
-                updated = journal.review_mistake(int(m.group(1)), str(data.get("result", "good")))
+                updated = journal.review_mistake(
+                    int(m.group(1)), str(data.get("result", "good")), db_path=journal.user_db(user)
+                )
                 self._json({"mistake": updated.to_dict()})
             else:
                 self._error(404, "unknown endpoint")
@@ -187,16 +248,44 @@ class Handler(BaseHTTPRequestHandler):
 
     def do_DELETE(self) -> None:  # noqa: N802
         url = urlparse(self.path)
+        user = self._require_auth()
+        if user is None:
+            return
         if m := re.fullmatch(r"/api/mistakes/(\d+)", url.path):
-            deleted = journal.delete_mistake(int(m.group(1)))
+            deleted = journal.delete_mistake(int(m.group(1)), db_path=journal.user_db(user))
             self._json({"deleted": deleted}) if deleted else self._error(404, "not found")
         else:
             self._error(404, "unknown endpoint")
 
 
-def serve(host: str = "127.0.0.1", port: int = 8101) -> None:
+def serve(
+    host: str = "127.0.0.1",
+    port: int = 8101,
+    tls_cert: str | None = None,
+    tls_key: str | None = None,
+) -> None:
+    global AUTH_KEYS
+    AUTH_KEYS = load_auth_keys()
+
+    if not _is_loopback(host) and not AUTH_KEYS:
+        raise SystemExit(
+            f"拒绝在 {host} 上无鉴权启动。远程访问必须设置 VIBE_CS101_AUTH_KEY=<key>"
+            "（或多用户 VIBE_CS101_AUTH_KEYS=name:key,name:key），"
+            "否则请使用默认的 127.0.0.1 仅本机访问。"
+        )
+    if not _is_loopback(host) and not tls_cert:
+        print("⚠️  远程访问未启用 HTTPS：建议加 --tls-cert/--tls-key，或置于反向代理（Caddy/Nginx）之后。")
+
     httpd = ThreadingHTTPServer((host, port), Handler)
-    print(f"Vibe-cs101 Web UI: http://{host}:{port}  (Ctrl-C 退出)")
+    scheme = "http"
+    if tls_cert:
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(certfile=tls_cert, keyfile=tls_key or None)
+        httpd.socket = ctx.wrap_socket(httpd.socket, server_side=True)
+        scheme = "https"
+
+    who = f"{len(AUTH_KEYS)} 个用户（鉴权已启用）" if AUTH_KEYS else "仅本机、未启用鉴权"
+    print(f"Vibe-cs101 Web UI: {scheme}://{host}:{port}  [{who}]  (Ctrl-C 退出)")
     try:
         httpd.serve_forever()
     except KeyboardInterrupt:

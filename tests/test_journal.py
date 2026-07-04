@@ -74,6 +74,13 @@ class JournalTests(unittest.TestCase):
         self.assertFalse(journal.delete_mistake(m.id, db_path=self.db))
         self.assertIsNone(journal.get_mistake(m.id, db_path=self.db))
 
+    def test_user_db_owner_uses_default_journal(self):
+        self.assertEqual(journal.user_db(None), journal.JOURNAL_DB)
+        self.assertEqual(journal.user_db("owner"), journal.JOURNAL_DB)
+
+    def test_user_db_named_user_gets_separate_file(self):
+        self.assertEqual(journal.user_db("alice"), journal.DATA_DIR / "journal-alice.db")
+
 
 if __name__ == "__main__":
     unittest.main()

@@ -47,6 +47,12 @@ python3 -m vibe_cs101 info              # 查看配置与索引状态
 # 6. Web UI（对话 / 检索 / 错题本 / 学习进度，四合一）
 python3 -m vibe_cs101 serve             # http://127.0.0.1:8101
 
+# 远程访问需先启用鉴权；多用户会自动隔离错题本和对话会话
+export VIBE_CS101_AUTH_KEYS='alice:alice-key,bob:bob-key'
+python3 -m vibe_cs101 serve --host 0.0.0.0 --port 8101
+# 可选：直接启用 HTTPS（也可放在 Caddy/Nginx 等反向代理后）
+python3 -m vibe_cs101 serve --host 0.0.0.0 --tls-cert fullchain.pem --tls-key privkey.pem
+
 # 7. 错题本（也可以直接在对话里说“我做错了某题”，智能体会帮你记）
 python3 -m vibe_cs101 mistake add "OpenJudge 26977 接雨水" --course cs101 --tags "单调栈" --reason "边界写错"
 python3 -m vibe_cs101 mistake due       # 今日待复习
@@ -77,11 +83,13 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
   工具调用循环，最多 12 轮；最后一轮撤下工具强制给出文字回答
 - **错题本** `journal.py`：参照 Vibe-Trading Shadow Account 思路——从做题记录里
   找出"你在哪里丢分"。间隔复习（1/3/7/14/30 天，全过 → 已掌握），按标签/课程
-  统计薄弱知识点。智能体可在对话中直接记错题、带你复习（存于 `data/journal.db`）
+  统计薄弱知识点。智能体可在对话中直接记错题、带你复习。单人模式存于
+  `data/journal.db`；Web UI 多用户模式按 `data/journal-<user>.db` 隔离。
 - **Web UI** `server.py` + `web/`：架构参照 Vibe-Trading（后端 REST API + 单页
   前端），但保持零依赖：标准库 ThreadingHTTPServer + 无构建的原生 JS 单页应用。
   四个页面：💬 对话（多轮会话）、🔍 检索、📌 错题本、📈 学习进度。默认只监听
-  127.0.0.1，仅供本机使用
+  127.0.0.1；绑定非本机地址时必须设置 `VIBE_CS101_AUTH_KEY` 或
+  `VIBE_CS101_AUTH_KEYS`，并建议通过 `--tls-cert/--tls-key` 或反向代理启用 HTTPS。
 
 ## 配置
 
@@ -91,6 +99,12 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 | `VIBE_CS101_API_KEY` | API key（也可用 `DEEPSEEK_API_KEY` / `OPENAI_API_KEY`） |
 | `VIBE_CS101_MODEL` | 模型名，默认 `deepseek-chat` |
 | `VIBE_CS101_DATA_DIR` | 数据目录，默认 `vibe-cs101/data/` |
+| `VIBE_CS101_AUTH_KEY` | Web UI 单用户访问密钥；设置后用户名为 `owner` |
+| `VIBE_CS101_AUTH_KEYS` | Web UI 多用户访问密钥，格式 `alice:k1,bob:k2` |
+
+远程部署时，`python3 -m vibe_cs101 serve --host 0.0.0.0` 会在未配置 Web UI
+鉴权时拒绝启动，避免把本地学习数据和 LLM 接口裸露到网络。浏览器登录后会把
+key 保存在本机 `localStorage`，后续 API 请求使用 `Authorization: Bearer <key>`。
 
 ## MCP Server
 
@@ -116,4 +130,4 @@ python3 -m unittest discover -s tests        # 纯标准库，无需安装任何
       下载 `index.db` 放到 `data/` 即可跳过 update/index 步骤）
 - [x] Web UI（参照 Vibe-Trading 后端 API + 单页前端架构，零依赖实现：`serve` 命令）
 - [x] 错题本 / 学习进度跟踪（参照 Vibe-Trading 的 Shadow Account 思路：`mistake` 命令 + 智能体工具 + Web 页面）
-- [ ] 多用户 / 远程部署（鉴权、HTTPS——当前 Web UI 仅本机使用）
+- [x] 多用户 / 远程部署基础能力（Bearer 鉴权、按用户隔离错题本和会话、可选 TLS）

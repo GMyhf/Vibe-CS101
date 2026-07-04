@@ -183,7 +183,7 @@ def cmd_mistake(args: argparse.Namespace) -> int:
 def cmd_serve(args: argparse.Namespace) -> int:
     from .server import serve
 
-    serve(host=args.host, port=args.port)
+    serve(host=args.host, port=args.port, tls_cert=args.tls_cert, tls_key=args.tls_key)
     return 0
 
 
@@ -238,8 +238,10 @@ def main(argv: list[str] | None = None) -> int:
     p.set_defaults(fn=cmd_mistake)
 
     p = sub.add_parser("serve", help="启动 Web UI（对话/检索/错题本）")
-    p.add_argument("--host", default="127.0.0.1")
+    p.add_argument("--host", default="127.0.0.1", help="非本机地址需设置 VIBE_CS101_AUTH_KEY(S)")
     p.add_argument("--port", type=int, default=8101)
+    p.add_argument("--tls-cert", help="TLS 证书（PEM，含证书链）→ 启用 HTTPS")
+    p.add_argument("--tls-key", help="TLS 私钥（PEM；证书文件已含私钥则可省略）")
     p.set_defaults(fn=cmd_serve)
 
     args = parser.parse_args(argv)

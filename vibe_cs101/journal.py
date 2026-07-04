@@ -16,6 +16,16 @@ from .config import DATA_DIR
 
 JOURNAL_DB = DATA_DIR / "journal.db"
 
+
+def user_db(user: str | None) -> Path:
+    """按用户隔离错题本。owner（单人模式）沿用 journal.db，其他用户各一个文件。
+
+    用户名在 config.load_auth_keys 已限制为 [A-Za-z0-9_-]，可安全拼入文件名。
+    """
+    if not user or user == "owner":
+        return JOURNAL_DB
+    return DATA_DIR / f"journal-{user}.db"
+
 # 复习间隔（天）：每次“记住了”前进一档，全部通过后 status → mastered
 INTERVALS = [1, 3, 7, 14, 30]
 

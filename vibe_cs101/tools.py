@@ -115,7 +115,7 @@ TOOL_SCHEMAS = [
 ]
 
 
-def _tool_search(args: dict) -> str:
+def _tool_search(args: dict, context: dict) -> str:
     hits = store.search(
         query=str(args.get("query", "")),
         limit=int(args.get("limit", 8) or 8),
@@ -142,14 +142,14 @@ def _tool_search(args: dict) -> str:
     )
 
 
-def _tool_read(args: dict) -> str:
+def _tool_read(args: dict, context: dict) -> str:
     section = store.get_section(int(args["section_id"]))
     if not section:
         return json.dumps({"error": f"section_id {args['section_id']} 不存在"}, ensure_ascii=False)
     return json.dumps(section, ensure_ascii=False)
 
 
-def _tool_list_sources(_args: dict) -> str:
+def _tool_list_sources(_args: dict, context: dict) -> str:
     known = {s.name: s.title for s in REMOTE_SOURCES}
     known.update({s.name: s.title for s in LOCAL_SOURCES})
     rows = store.stats()
@@ -166,7 +166,7 @@ def _tool_list_sources(_args: dict) -> str:
     )
 
 
-def _tool_record_mistake(args: dict) -> str:
+def _tool_record_mistake(args: dict, context: dict) -> str:
     from . import journal
 
     m = journal.add_mistake(
@@ -176,28 +176,32 @@ def _tool_record_mistake(args: dict) -> str:
         reason=args.get("reason") or "",
         note=args.get("note") or "",
         section_id=args.get("section_id"),
+        db_path=context.get("journal_db"),
     )
     return json.dumps({"recorded": m.to_dict(), "hint": f"已记入错题本，{m.next_review} 复习"}, ensure_ascii=False)
 
 
-def _tool_review_mistakes(args: dict) -> str:
+def _tool_review_mistakes(args: dict, context: dict) -> str:
     from . import journal
 
     view = args.get("view", "due")
     if view == "stats":
-        return json.dumps(journal.stats(), ensure_ascii=False)
+        return json.dumps(journal.stats(db_path=context.get("journal_db")), ensure_ascii=False)
     mistakes = journal.list_mistakes(
         due_only=(view == "due"),
         course=args.get("course") or None,
         tag=args.get("tag") or None,
+        db_path=context.get("journal_db"),
     )
     return json.dumps({"mistakes": [m.to_dict() for m in mistakes]}, ensure_ascii=False)
 
 
-def _tool_mark_reviewed(args: dict) -> str:
+def _tool_mark_reviewed(args: dict, context: dict) -> str:
     from . import journal
 
-    m = journal.review_mistake(int(args["mistake_id"]), str(args.get("result", "good")))
+    m = journal.review_mistake(
+        int(args["mistake_id"]), str(args.get("result", "good")), db_path=context.get("journal_db")
+    )
     return json.dumps({"updated": m.to_dict()}, ensure_ascii=False)
 
 
@@ -211,7 +215,8 @@ _HANDLERS = {
 }
 
 
-def run_tool(name: str, arguments: str) -> str:
+def run_tool(name: str, arguments: str, context: dict | None = None) -> str:
+    """context 可携带调用方信息，目前支持 journal_db（按用户隔离的错题本路径）。"""
     handler = _HANDLERS.get(name)
     if not handler:
         return json.dumps({"error": f"unknown tool: {name}"}, ensure_ascii=False)
@@ -220,6 +225,6 @@ def run_tool(name: str, arguments: str) -> str:
     except json.JSONDecodeError as exc:
         return json.dumps({"error": f"bad tool arguments: {exc}"}, ensure_ascii=False)
     try:
-        return handler(args)
+        return handler(args, context or {})
     except Exception as exc:  # noqa: BLE001 - tool errors go back to the model
         return json.dumps({"error": str(exc)}, ensure_ascii=False)

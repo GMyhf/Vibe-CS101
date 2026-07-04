@@ -33,10 +33,17 @@ SYSTEM_PROMPT = """\
 
 
 class Agent:
-    def __init__(self, cfg: LLMConfig | None = None, on_event: Callable[[str], None] | None = None):
+    def __init__(
+        self,
+        cfg: LLMConfig | None = None,
+        on_event: Callable[[str], None] | None = None,
+        tool_context: dict | None = None,
+    ):
         self.cfg = cfg or load_llm_config()
         self.messages: list[dict] = [{"role": "system", "content": SYSTEM_PROMPT}]
         self.on_event = on_event or (lambda _msg: None)
+        # 传给工具的调用方上下文（如按用户隔离的 journal_db）
+        self.tool_context = tool_context or {}
         # Injectable for tests: same signature as llm.chat.
         self.chat_fn = chat
 
@@ -62,7 +69,7 @@ class Agent:
                 name = fn.get("name", "")
                 args = fn.get("arguments", "") or "{}"
                 self.on_event(f"🔧 {name}({args[:120]})")
-                result = run_tool(name, args)
+                result = run_tool(name, args, self.tool_context)
                 self.messages.append(
                     {
                         "role": "tool",
