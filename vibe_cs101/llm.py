@@ -14,10 +14,23 @@ from collections.abc import Iterator
 from .config import LLMConfig
 
 TIMEOUT_S = 180
+# 部分网关（如 Cloudflare WAF）会拦截 Python-urllib 默认 UA 并返回 403
+USER_AGENT = "vibe-cs101/1.0"
 
 
 class LLMError(RuntimeError):
     pass
+
+
+def _format_http_error(cfg: LLMConfig, code: int, body: str) -> str:
+    msg = f"LLM API HTTP {code} ({cfg.model} @ {cfg.base_url.rstrip('/')}): {body[:500]}"
+    if code == 403 and "1010" in body:
+        msg += (
+            "\n403 error code 1010 通常是网关 WAF（如 Cloudflare）拦截了请求。"
+            "请运行 python3 -m vibe_cs101 info 确认当前生效的配置，"
+            "并检查 vibe-cs101/.env 与 VIBE_CS101_* 环境变量是否指向预期端点。"
+        )
+    return msg
 
 
 def chat(
@@ -46,14 +59,15 @@ def chat(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {cfg.api_key}",
+            "User-Agent": USER_AGENT,
         },
     )
     try:
         with urllib.request.urlopen(req, timeout=TIMEOUT_S) as resp:
             data = json.loads(resp.read().decode("utf-8"))
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")[:500]
-        raise LLMError(f"LLM API HTTP {exc.code}: {body}") from exc
+        body = exc.read().decode("utf-8", errors="replace")
+        raise LLMError(_format_http_error(cfg, exc.code, body)) from exc
     except Exception as exc:  # noqa: BLE001
         raise LLMError(f"LLM API request failed: {exc}") from exc
 
@@ -87,6 +101,7 @@ def stream_chat(
         headers={
             "Content-Type": "application/json",
             "Authorization": f"Bearer {cfg.api_key}",
+            "User-Agent": USER_AGENT,
         },
     )
     try:
@@ -107,8 +122,8 @@ def stream_chat(
                 if content:
                     yield content
     except urllib.error.HTTPError as exc:
-        body = exc.read().decode("utf-8", errors="replace")[:500]
-        raise LLMError(f"LLM API HTTP {exc.code}: {body}") from exc
+        body = exc.read().decode("utf-8", errors="replace")
+        raise LLMError(_format_http_error(cfg, exc.code, body)) from exc
     except LLMError:
         raise
     except Exception as exc:  # noqa: BLE001
