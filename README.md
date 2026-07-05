@@ -140,12 +140,12 @@ python3 -m vibe_cs101 quickstart
 
 ### Codex CLI
 
-Codex 使用自己的 MCP 管理命令。推荐先把本仓库安装到当前 Python 环境：
+Codex 使用自己的 MCP 管理命令。推荐显式设置 `PYTHONPATH`，这样不依赖系统是否安装了 `pip`：
 
 ```bash
-cd /home/rocky/git/Vibe-CS101
-python3 -m pip install -e .
-codex mcp add vibe-cs101 -- python3 -m vibe_cs101.mcp_server
+codex mcp add vibe-cs101 \
+  --env PYTHONPATH=/home/rocky/git/Vibe-CS101 \
+  -- python3 -m vibe_cs101.mcp_server
 ```
 
 确认配置：
@@ -155,12 +155,21 @@ codex mcp list
 codex mcp get vibe-cs101
 ```
 
-如果不想安装包，也可以显式设置 `PYTHONPATH`：
+如果已经添加过未带 `PYTHONPATH` 的配置，先删后加：
 
 ```bash
+codex mcp remove vibe-cs101
 codex mcp add vibe-cs101 \
   --env PYTHONPATH=/home/rocky/git/Vibe-CS101 \
   -- python3 -m vibe_cs101.mcp_server
+```
+
+如果你的 Python 环境有 `pip`，也可以选择安装包后再添加：
+
+```bash
+cd /home/rocky/git/Vibe-CS101
+python3 -m pip install -e .
+codex mcp add vibe-cs101 -- python3 -m vibe_cs101.mcp_server
 ```
 
 添加后重启 Codex 或开启新的 Codex 会话，再这样提问：
