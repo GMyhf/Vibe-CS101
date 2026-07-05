@@ -65,7 +65,7 @@ class LocalSource:
     kind: str = "courseware"
 
 
-# 题解来源（task.md 列出的 6 个上游长 Markdown 文件）
+# 题解来源（上游长 Markdown 文件）
 REMOTE_SOURCES: list[RemoteSource] = [
     RemoteSource(
         name="leetcode",
@@ -101,6 +101,12 @@ REMOTE_SOURCES: list[RemoteSource] = [
         name="sunnywhy",
         url="https://raw.githubusercontent.com/GMyhf/2024spring-cs201/main/sunnywhy_problems.md",
         title="晴问算法笔记题解",
+        course="cs201",
+    ),
+    RemoteSource(
+        name="cpp",
+        url="https://raw.githubusercontent.com/GMyhf/2025fall-cs201/main/2025fall_problems_in_cpp.md",
+        title="C++ 版题解",
         course="cs201",
     ),
 ]

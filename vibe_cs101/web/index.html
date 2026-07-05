@@ -195,6 +195,43 @@
   .tool-frame-head .left { min-width: 0; }
   .tool-frame-head .right { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
   .tool-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+  .solution-shell { flex: 1; min-height: 0; display: grid; grid-template-rows: auto 1fr; background: #fff; }
+  .solution-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: grid; gap: 10px; }
+  .solution-head h2 { margin: 0; font-size: 18px; }
+  .solution-head .topline { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
+  .solution-layout { min-height: 0; display: grid; grid-template-columns: 360px minmax(0, 1fr); }
+  .solution-sidebar { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); padding: 14px; background: #fafafa; }
+  .solution-reader { min-height: 0; overflow-y: auto; padding: 18px 24px; }
+  .solution-sets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
+  .solution-set { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 9px 10px;
+                  text-align: left; cursor: pointer; color: var(--ink); }
+  .solution-set:hover { border-color: #c7d2fe; }
+  .solution-set.active { border-color: var(--brand); background: var(--brand-soft); color: var(--brand); }
+  .solution-set b { display: block; font-size: 13px; line-height: 1.25; }
+  .solution-set span { color: var(--muted); font-size: 11px; }
+  .solution-results { display: grid; gap: 8px; }
+  .solution-item { width: 100%; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 9px;
+                   border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 10px;
+                   text-align: left; cursor: pointer; color: var(--ink); }
+  .solution-item:hover, .solution-item.active { border-color: #c7d2fe; box-shadow: 0 6px 16px rgba(79,70,229,.07); }
+  .solution-item.active { background: #fbfbff; }
+  .solution-badge { width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+                    background: var(--brand-soft); color: var(--brand); font-size: 12px; font-weight: 800; }
+  .solution-item-title { font-weight: 650; font-size: 14px; line-height: 1.35; }
+  .solution-item-meta { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.35; }
+  .solution-item-snippet { margin-top: 5px; color: #374151; font-size: 12px; line-height: 1.45; }
+  .solution-item mark { background: #fef3c7; color: #92400e; padding: 0 2px; border-radius: 4px; }
+  .solution-reader-head { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start;
+                          border-bottom: 1px solid var(--border); padding-bottom: 12px; margin-bottom: 14px; }
+  .solution-reader h1 { margin: 0 0 6px; font-size: 22px; line-height: 1.25; }
+  .solution-meta { color: var(--muted); font-size: 13px; }
+  .solution-content { line-height: 1.58; font-size: 14px; max-width: 900px; }
+  .solution-content h1, .solution-content h2, .solution-content h3 { line-height: 1.3; margin: 16px 0 8px; }
+  .solution-content p { margin: 7px 0; }
+  .solution-content ul, .solution-content ol { margin: 6px 0 8px; padding-left: 22px; }
+  .solution-content pre { background: var(--code-bg); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  .solution-content code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
+  .solution-content pre code { background: none; padding: 0; }
   .admin-shell { max-width: 1120px; margin: 0 auto; }
   .admin-home { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
                 gap: 16px; margin-bottom: 18px; }
@@ -263,6 +300,10 @@
     main { height: auto; flex: 1; min-height: 0; }
     .tool-frame-wrap { min-height: 70vh; }
     .tool-frame-head { align-items: flex-start; flex-direction: column; }
+    .solution-layout { grid-template-columns: 1fr; }
+    .solution-sidebar { border-right: 0; border-bottom: 1px solid var(--border); max-height: 45vh; }
+    .solution-reader { padding: 16px; }
+    .solution-head .topline, .solution-reader-head { flex-direction: column; }
     .admin-stats { grid-template-columns: 1fr; }
     .admin-head { align-items: flex-start; flex-direction: column; }
   }
@@ -344,24 +385,47 @@
 </section>
 
 <section id="panel-sol101" class="panel">
-  <div class="tool-frame-wrap">
-    <div class="tool-frame-head">
-      <div class="left">
+  <div class="solution-shell">
+    <div class="solution-head">
+      <div class="topline">
+        <div>
         <h2>题解查询</h2>
-        <div class="muted">本机托管的 Solutions FuYnAloft：OpenJudge 和 Codeforces 题解。</div>
+          <div class="muted">按题号、标题、平台或知识点查找本机题解。结果来自本机同步的题解库。</div>
       </div>
-      <div class="right">
-        <a class="ghost" id="sol101-open" href="/sol101/" target="_blank" rel="noopener">新窗口打开</a>
+        <div class="row">
+          <a class="ghost" id="sol101-open" href="/sol101/" target="_blank" rel="noopener">完整目录</a>
         <a class="ghost" id="sol101-repo" href="https://github.com/FuYnAloft/sol101" target="_blank" rel="noopener">源码仓库</a>
       </div>
     </div>
-    <iframe
-      id="sol101-frame"
-      class="tool-frame"
-      title="sol101 题解查询"
-      src="about:blank"
-      loading="lazy"
-      referrerpolicy="no-referrer-when-downgrade"></iframe>
+      <div class="row">
+        <input id="solution-q" class="grow" placeholder="题号、题名或关键词，如：02733 / Theatre Square / 单调栈">
+        <select id="solution-set"><option value="">全部题解集</option></select>
+        <button id="solution-search" class="primary">搜索</button>
+      </div>
+    </div>
+    <div class="solution-layout">
+      <div class="solution-sidebar">
+        <div id="solution-sets" class="solution-sets"></div>
+        <div id="solution-results" class="solution-results">
+          <div class="empty-state">加载题解目录中…</div>
+        </div>
+      </div>
+      <div class="solution-reader">
+        <div id="solution-reader-empty" class="empty-state">选择左侧题目查看题解。</div>
+        <div id="solution-reader-body" style="display:none">
+          <div class="solution-reader-head">
+            <div>
+              <h1 id="solution-title"></h1>
+              <div id="solution-meta" class="solution-meta"></div>
+            </div>
+            <div class="row">
+              <button id="solution-copy" class="ghost">复制正文</button>
+            </div>
+          </div>
+          <div id="solution-content" class="solution-content"></div>
+        </div>
+      </div>
+    </div>
   </div>
 </section>
 
@@ -1023,7 +1087,7 @@ function renderSearchResults() {
   const sourceName = s => ({
     '2025fall-cs101': '课件', '2026spring-cs201': '课件',
     leetcode: 'LeetCode', 'leetcode-tough': 'LeetCode+', openjudge: 'OpenJudge',
-    codeforces: 'Codeforces', 'cs201-dsa': '数算题解', sunnywhy: '晴问'
+    codeforces: 'Codeforces', 'cs201-dsa': '数算题解', sunnywhy: '晴问', cpp: 'C++ 题解'
   })[s] || s;
   box.innerHTML = `
     <div class="search-head">
@@ -1187,17 +1251,107 @@ async function downloadLibFile(src, path) {
 }
 
 /* ---- sol101 ---- */
+let solutionSets = [];
+let solutionState = {q: '', set: '', results: [], active: null, content: ''};
+const solutionLabel = s => {
+  const found = solutionSets.find(x => x.name === s);
+  return found ? found.title : s;
+};
 async function loadSol101() {
   try {
-    const d = await api('/api/sol101');
+    const d = await api('/api/solutions');
+    solutionSets = d.sets || [];
     $('#sol101-open').href = d.site_url;
-    $('#sol101-repo').href = d.repo_url;
-    $('#sol101-frame').src = d.site_url;
+    renderSolutionSets();
+    await searchSolutions('', '');
     sol101Loaded = true;
   } catch (e) {
-    $('#sol101-frame').srcdoc = `<p style="font-family:sans-serif;padding:20px;color:#6b7280">无法加载题解查询：${esc(e.message)}</p>`;
+    $('#solution-results').innerHTML = `<div class="empty-state">无法加载题解：${esc(e.message)}</div>`;
   }
 }
+function renderSolutionSets() {
+  const select = $('#solution-set');
+  select.innerHTML = '<option value="">全部题解集</option>' + solutionSets.map(s =>
+    `<option value="${esc(s.name)}">${esc(s.title)} (${s.count})</option>`).join('');
+  $('#solution-sets').innerHTML = [
+    {name: '', title: '全部题解', count: solutionSets.reduce((n, s) => n + (s.count || 0), 0), badge: 'ALL'},
+    ...solutionSets,
+  ].map(s => `
+    <button class="solution-set ${solutionState.set === s.name ? 'active' : ''}" data-set="${esc(s.name)}">
+      <b>${esc(s.title)}</b><span>${esc(s.badge || '')} · ${s.count || 0} 题</span>
+    </button>`).join('');
+  $('#solution-sets').querySelectorAll('button').forEach(b => b.onclick = () => {
+    $('#solution-set').value = b.dataset.set;
+    searchSolutions($('#solution-q').value.trim(), b.dataset.set);
+  });
+}
+async function searchSolutions(q, setName) {
+  solutionState.q = q;
+  solutionState.set = setName || '';
+  renderSolutionSets();
+  $('#solution-results').innerHTML = '<div class="empty-state">检索中…</div>';
+  try {
+    const d = await api(`/api/solutions/search?limit=40&q=${encodeURIComponent(q)}${setName ? `&set=${encodeURIComponent(setName)}` : ''}`);
+    solutionState.results = d.results || [];
+    renderSolutionResults();
+    if (solutionState.results.length) {
+      await openSolution(solutionState.results[0].set, solutionState.results[0].path);
+    } else {
+      $('#solution-reader-empty').style.display = '';
+      $('#solution-reader-body').style.display = 'none';
+    }
+  } catch (e) {
+    $('#solution-results').innerHTML = `<div class="empty-state">检索失败：${esc(e.message)}</div>`;
+  }
+}
+function renderSolutionResults() {
+  const box = $('#solution-results');
+  const {q, results, active} = solutionState;
+  if (!results.length) {
+    box.innerHTML = '<div class="empty-state">没有匹配题解。试试题号、英文题名或更短关键词。</div>';
+    return;
+  }
+  box.innerHTML = results.map(r => {
+    const key = `${r.set}/${r.path}`;
+    return `<button class="solution-item ${active === key ? 'active' : ''}" data-set="${esc(r.set)}" data-path="${esc(r.path)}">
+      <span class="solution-badge">${esc(r.badge || '')}</span>
+      <span>
+        <span class="solution-item-title">${highlightText(r.title, q)}</span>
+        <span class="solution-item-meta">${esc(r.set_title)} · ${esc(r.meta || baseName(r.path))}</span>
+        <span class="solution-item-snippet">${highlightText(r.snippet || '', q)}</span>
+      </span>
+    </button>`;
+  }).join('');
+  box.querySelectorAll('button').forEach(b => b.onclick = () => openSolution(b.dataset.set, b.dataset.path));
+}
+async function openSolution(setName, path) {
+  const key = `${setName}/${path}`;
+  solutionState.active = key;
+  renderSolutionResults();
+  const d = await api(`/api/solutions/file?set=${encodeURIComponent(setName)}&path=${encodeURIComponent(path)}`);
+  solutionState.content = d.content || '';
+  $('#solution-reader-empty').style.display = 'none';
+  $('#solution-reader-body').style.display = '';
+  $('#solution-title').textContent = d.title;
+  $('#solution-meta').textContent = `${d.set_title} / ${d.course || '未标课程'} / ${d.path}${d.meta ? ` · ${d.meta}` : ''}`;
+  $('#solution-content').innerHTML = mdLite(d.content || '');
+  solutionState.active = key;
+  renderSolutionResults();
+}
+$('#solution-search').onclick = () => searchSolutions($('#solution-q').value.trim(), $('#solution-set').value);
+$('#solution-q').addEventListener('keydown', e => {
+  if (e.key === 'Enter' && !e.isComposing) searchSolutions($('#solution-q').value.trim(), $('#solution-set').value);
+});
+$('#solution-set').onchange = () => searchSolutions($('#solution-q').value.trim(), $('#solution-set').value);
+$('#solution-copy').onclick = async () => {
+  try {
+    await navigator.clipboard.writeText(solutionState.content || '');
+    $('#solution-copy').textContent = '已复制';
+    setTimeout(() => { $('#solution-copy').textContent = '复制正文'; }, 1200);
+  } catch (e) {
+    alert('复制失败');
+  }
+};
 
 /* ---- mistakes ---- */
 async function loadMistakes() {

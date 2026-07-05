@@ -17,7 +17,7 @@
 - Added member CSV export with student ID, name, department, role, join time, last seen, and username.
 - Added member key reset and member deletion actions for teachers.
 - Added a left-panel `sol101` solution-search tool served locally from `/sol101/`, built from `https://github.com/FuYnAloft/sol101`.
-- Added `scripts/update_sol101.sh` and `scripts/update_sol101.py` to build the local OpenJudge/Codeforces solution site from Vibe-CS101's downloaded solution Markdown.
+- Added `scripts/update_sol101.sh` and `scripts/update_sol101.py` to build the local `sol101` solution site from all answer sources supported by FuYnAloft/sol101.
 - Added a system cron job at `/etc/cron.d/vibe-cs101-sol101` to refresh and rebuild the local `sol101` site daily at 04:20.
 
 ### Changed
@@ -43,12 +43,15 @@
 - Downloaded upstream solution Markdown files into `data/original/<github-repo>/` via `python3 -m vibe_cs101 update`.
 - Changed the left-panel `sol101` tool from an external GitHub Pages iframe to a local Vibe-CS101-served static site.
 - Added timeout protection to the `sol101` update script so cron jobs do not hang indefinitely on slow GitHub or source-update requests.
+- Expanded the local `sol101` build from only OpenJudge/Codeforces to every upstream-supported answer set, including LeetCode, Sunnywhy, and C++.
+- Reworked the left-panel solution search from an embedded VitePress iframe into a native Vibe-CS101 interface with solution-set filters, local search, and Markdown reading.
 
 ### Verified
 - Confirmed `.env` is active through `/api/info`: `llm_configured` is `true`, model is `gpt-5.2`.
 - Confirmed the existing `remote` user has the `teacher` role and admin permissions.
 - Confirmed the service is listening on `10.129.81.235:8101`.
-- Built the local `sol101` VitePress static site into `data/sol101/docs/.vitepress/dist`.
+- Built the local `sol101` VitePress static site into `data/sol101/docs/.vitepress/dist`; the served homepage now includes OpenJudge, Codeforces, LeetCode, Sunnywhy, and C++ entries.
+- Rebuilt `data/index.db`; `/api/info` reports 5,521 indexed sections including 221 `cpp` solution sections.
 - Confirmed the system cron daemon is active and `/etc/cron.d/vibe-cs101-sol101` is installed.
 - Ran the full test suite: `python3 -m unittest discover -s tests -v` passed with 123 tests.
 

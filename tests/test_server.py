@@ -487,12 +487,42 @@ class ServerTests(unittest.TestCase):
 
         status, data = self.request("/api/sol101", key=student_key)
         self.assertEqual(status, 200)
+        self.assertEqual(data["mode"], "native")
         self.assertEqual(data["site_url"], "/sol101/")
         self.assertEqual(data["repo_url"], "https://github.com/FuYnAloft/sol101")
 
         status, logs = self.request("/api/admin/logs?action=sol101_view", key=teacher_key)
         self.assertEqual(status, 200)
         self.assertTrue(any(e["action"] == "sol101_view" for e in logs["events"]))
+
+    def test_native_solutions_api_lists_searches_and_reads_markdown(self):
+        student_key = users.add_user("student", role="student")
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = Path(tmp)
+            (docs / "cf").mkdir()
+            (docs / "cf" / "1a.md").write_text(
+                "# 1A. Theatre Square\n\nmath, http://codeforces.com/problemset/problem/1/A\n\n"
+                "Use ceiling division.",
+                encoding="utf-8",
+            )
+            with patch("vibe_cs101.server.SOL101_DOCS_DIR", docs):
+                status, data = self.request("/api/solutions", key=student_key)
+                self.assertEqual(status, 200)
+                self.assertEqual(data["sets"][0]["name"], "cf")
+                self.assertEqual(data["sets"][0]["count"], 1)
+
+                status, data = self.request("/api/solutions/search?q=Theatre&set=cf", key=student_key)
+                self.assertEqual(status, 200)
+                self.assertEqual(data["results"][0]["title"], "1A. Theatre Square")
+                self.assertEqual(data["results"][0]["path"], "1a.md")
+
+                status, data = self.request("/api/solutions/file?set=cf&path=1a.md", key=student_key)
+                self.assertEqual(status, 200)
+                self.assertEqual(data["title"], "1A. Theatre Square")
+                self.assertIn("ceiling division", data["content"])
+
+                status, _ = self.request("/api/solutions/file?set=cf&path=../secret.md", key=student_key)
+                self.assertEqual(status, 404)
 
     def test_sol101_static_route_serves_built_site(self):
         with tempfile.TemporaryDirectory() as tmp:

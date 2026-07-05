@@ -16,6 +16,9 @@ API:
     GET  /api/library                  知识库：原始课件/题解文件列表
     GET  /api/library/file?source=&path=[&download=1]   查看/下载原始文件
     GET  /api/sol101                   题解查询工具入口配置
+    GET  /api/solutions                原生题解查询：题解集列表
+    GET  /api/solutions/search?q=&set=&limit=  原生题解查询：搜索题目
+    GET  /api/solutions/file?set=&path=        原生题解查询：读取 Markdown
     GET  /api/mistakes?view=all|due    错题列表
     POST /api/mistakes                 记错题 {problem, course?, tags?, reason?, note?, link?, section_id?}
     GET  /api/mistakes/{id}            读取错题详情
@@ -63,6 +66,7 @@ from .config import (
 )
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+SOL101_DOCS_DIR = DATA_DIR / "sol101" / "docs"
 SOL101_DIST_DIR = DATA_DIR / "sol101" / "docs" / ".vitepress" / "dist"
 MAX_BODY = 1 << 20  # 1MB
 MAX_SESSIONS = 50  # 内存中的活跃会话上限；被挤出的会话可随时从 sessions.db 恢复
@@ -72,6 +76,159 @@ LIB_EXTS = {".md", ".pdf", ".py", ".cpp", ".c", ".h", ".txt", ".ipynb",
             ".zip", ".csv", ".png", ".jpg", ".jpeg", ".gif", ".pptx", ".docx", ".xlsx"}
 LIB_TEXT_EXTS = {".md", ".py", ".cpp", ".c", ".h", ".txt", ".csv"}
 LIB_MAX_FILES = 800
+
+SOL101_SET_META = {
+    "oj-dsa": {"title": "OpenJudge 数算", "course": "cs201", "badge": "OJ"},
+    "oj": {"title": "OpenJudge 计概", "course": "cs101", "badge": "OJ"},
+    "cf": {"title": "Codeforces", "course": "cs101", "badge": "CF"},
+    "leetcode-em": {"title": "LeetCode 易+中", "course": "cs101", "badge": "LC"},
+    "leetcode-tough": {"title": "LeetCode 难", "course": "cs101", "badge": "LC+"},
+    "sunnywhy": {"title": "Sunnywhy", "course": "cs201", "badge": "SY"},
+    "cpp": {"title": "C++ 题解", "course": "cs201", "badge": "C++"},
+}
+SOL101_SKIP_DIRS = {".vitepress", "public", "__pycache__"}
+SOL101_MAX_FILE = 2_000_000
+
+
+def _sol101_set_order() -> list[str]:
+    known = [name for name in SOL101_SET_META if (SOL101_DOCS_DIR / name).is_dir()]
+    extra = []
+    if SOL101_DOCS_DIR.is_dir():
+        for p in sorted(SOL101_DOCS_DIR.iterdir()):
+            if p.is_dir() and p.name not in SOL101_SET_META and p.name not in SOL101_SKIP_DIRS:
+                extra.append(p.name)
+    return known + extra
+
+
+def _sol101_set_info(name: str) -> dict:
+    meta = SOL101_SET_META.get(name, {})
+    root = SOL101_DOCS_DIR / name
+    count = 0
+    if root.is_dir():
+        count = sum(1 for p in root.glob("*.md") if p.name != "index.md")
+    return {
+        "name": name,
+        "title": meta.get("title", name),
+        "course": meta.get("course", ""),
+        "badge": meta.get("badge", name[:3].upper()),
+        "count": count,
+    }
+
+
+def _sol101_sets() -> list[dict]:
+    return [_sol101_set_info(name) for name in _sol101_set_order()]
+
+
+def _resolve_solution_file(set_name: str, rel_path: str) -> Path | None:
+    if not re.fullmatch(r"[A-Za-z0-9_-]{1,64}", set_name):
+        return None
+    if set_name not in _sol101_set_order():
+        return None
+    root = (SOL101_DOCS_DIR / set_name).resolve()
+    try:
+        file = (root / rel_path).resolve()
+        file.relative_to(root)
+    except (ValueError, OSError):
+        return None
+    if not file.is_file() or file.suffix.lower() != ".md":
+        return None
+    if file.name == "index.md" or any(part.startswith(".") for part in file.relative_to(root).parts):
+        return None
+    if file.stat().st_size > SOL101_MAX_FILE:
+        return None
+    return file
+
+
+def _solution_title_and_meta(text: str, fallback: str) -> tuple[str, str]:
+    title = fallback
+    meta = ""
+    for line in text.splitlines():
+        stripped = line.strip()
+        if not stripped:
+            continue
+        if stripped.startswith("# "):
+            title = stripped[2:].strip() or title
+            continue
+        if title != fallback and not stripped.startswith("#"):
+            meta = stripped
+            break
+    return title, meta
+
+
+def _query_terms(query: str) -> list[str]:
+    terms = re.findall(r"[0-9A-Za-z_.+#-]+|[\u3400-\u9fff]+", query.lower())
+    return [t for t in terms if len(t) >= 1]
+
+
+def _solution_snippet(text: str, terms: list[str], max_len: int = 180) -> str:
+    compact = re.sub(r"\s+", " ", text).strip()
+    if not compact:
+        return ""
+    lower = compact.lower()
+    pos = -1
+    for term in terms:
+        pos = lower.find(term)
+        if pos >= 0:
+            break
+    if pos < 0:
+        return compact[:max_len]
+    start = max(0, pos - max_len // 3)
+    end = min(len(compact), start + max_len)
+    prefix = "…" if start else ""
+    suffix = "…" if end < len(compact) else ""
+    return prefix + compact[start:end] + suffix
+
+
+def _solution_entry(set_name: str, file: Path, terms: list[str] | None = None) -> dict:
+    root = SOL101_DOCS_DIR / set_name
+    rel = file.relative_to(root).as_posix()
+    text = file.read_text(encoding="utf-8", errors="replace")
+    title, meta = _solution_title_and_meta(text, file.stem)
+    set_info = _sol101_set_info(set_name)
+    return {
+        "set": set_name,
+        "set_title": set_info["title"],
+        "badge": set_info["badge"],
+        "course": set_info["course"],
+        "path": rel,
+        "title": title,
+        "meta": meta,
+        "snippet": _solution_snippet(text, terms or []),
+    }
+
+
+def _search_solutions(query: str, set_name: str | None, limit: int) -> list[dict]:
+    terms = _query_terms(query)
+    sets = [set_name] if set_name else _sol101_set_order()
+    ranked: list[tuple[int, str, dict]] = []
+    for name in sets:
+        if name not in _sol101_set_order():
+            continue
+        root = SOL101_DOCS_DIR / name
+        if not root.is_dir():
+            continue
+        for file in sorted(root.glob("*.md")):
+            if file.name == "index.md" or file.stat().st_size > SOL101_MAX_FILE:
+                continue
+            entry = _solution_entry(name, file, terms)
+            hay_title = entry["title"].lower()
+            hay_path = entry["path"].lower()
+            hay_meta = entry["meta"].lower()
+            if terms:
+                text = file.read_text(encoding="utf-8", errors="replace").lower()
+                if not all(t in text or t in hay_title or t in hay_path or t in hay_meta for t in terms):
+                    continue
+                score = 0
+                for term in terms:
+                    score += 30 if term in hay_title else 0
+                    score += 12 if term in hay_path else 0
+                    score += 8 if term in hay_meta else 0
+                    score += min(text.count(term), 8)
+            else:
+                score = 1
+            ranked.append((score, f"{name}/{entry['path']}", entry))
+    ranked.sort(key=lambda x: (-x[0], x[1]))
+    return [entry for _score, _key, entry in ranked[:limit]]
 
 
 def _library_roots() -> dict[str, tuple[str, Path]]:
@@ -516,8 +673,51 @@ class Handler(BaseHTTPRequestHandler):
                 self._json(
                     {
                         "title": "题解查询",
+                        "mode": "native",
                         "site_url": "/sol101/",
                         "repo_url": "https://github.com/FuYnAloft/sol101",
+                        "sets": _sol101_sets(),
+                    }
+                )
+            elif url.path == "/api/solutions":
+                _log_action(user, "solutions_list", {})
+                self._json({"sets": _sol101_sets(), "site_url": "/sol101/"})
+            elif url.path == "/api/solutions/search":
+                query = q.get("q", [""])[0]
+                set_name = q.get("set", [None])[0] or None
+                limit = min(int(q.get("limit", ["30"])[0]), 80)
+                results = _search_solutions(query, set_name, limit)
+                _log_action(
+                    user,
+                    "solutions_search",
+                    {"query": query, "set": set_name, "results": len(results)},
+                )
+                self._json({"results": results})
+            elif url.path == "/api/solutions/file":
+                set_name = q.get("set", [""])[0]
+                rel_path = q.get("path", [""])[0]
+                file = _resolve_solution_file(set_name, rel_path)
+                if file is None:
+                    self._error(404, "solution not found")
+                    return
+                text = file.read_text(encoding="utf-8", errors="replace")
+                title, meta = _solution_title_and_meta(text, file.stem)
+                set_info = _sol101_set_info(set_name)
+                _log_action(
+                    user,
+                    "solution_read",
+                    {"set": set_name, "path": rel_path, "title": title},
+                )
+                self._json(
+                    {
+                        "set": set_name,
+                        "set_title": set_info["title"],
+                        "badge": set_info["badge"],
+                        "course": set_info["course"],
+                        "path": rel_path,
+                        "title": title,
+                        "meta": meta,
+                        "content": text,
                     }
                 )
             elif url.path == "/api/sessions":
