@@ -59,6 +59,7 @@
 - Updated Codex MCP guidance to prefer the `PYTHONPATH` setup path when system Python has no `pip`.
 - Reworded project descriptions from "personal" wording to course-service wording for multi-user deployments.
 - Shortened the project tagline to "课程学习智能体" in README and CLI metadata.
+- Fixed solution Markdown rendering for raw HTML `<img>` tags and proxied remote problem images through the local service with GitHub/jsDelivr fallback.
 
 ### Verified
 - Confirmed `.env` is active through `/api/info`: `llm_configured` is `true`, model is `gpt-5.2`.
@@ -73,6 +74,7 @@
 - Verified local OpenJudge navigation order around `E01218: THE DRUNK JAILER`.
 - Verified a live chat request returns normally with `gpt-5.4`.
 - Updated and verified the live `remote` teacher profile as student ID `0006173231`, display name `闫宏飞`.
+- Verified live solution `oj-dsa/30913.md` includes `1779708912.png` and `/api/image` returns it as `image/png` through `http://10.129.81.235:8101`.
 
 ### Notes
 - Behavior logs include user actions and chat question summaries. Teachers and assistants can view these logs, so student-facing usage notes should disclose this.

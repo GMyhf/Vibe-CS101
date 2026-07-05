@@ -5,6 +5,7 @@ import unittest
 import urllib.request
 from http.server import ThreadingHTTPServer
 from pathlib import Path
+from urllib.parse import quote
 from unittest.mock import patch
 
 from vibe_cs101 import audit, courses, journal, server, sessions, store, users
@@ -569,6 +570,35 @@ class ServerTests(unittest.TestCase):
                 self.assertEqual(status, 404)
                 status, _ = self.request("/api/solutions/list?set=missing", key=student_key)
                 self.assertEqual(status, 404)
+
+    def test_image_proxy_serves_without_auth_and_rejects_private_hosts(self):
+        server.AUTH_KEYS = {"teacher": "secret"}
+        self.assertIsNone(server._image_proxy_allowed("http://127.0.0.1/private.png"))
+        image_url = "https://raw.githubusercontent.com/GMyhf/img/main/img/1779708912.png"
+        with patch("vibe_cs101.server._cached_image", return_value=(b"image-body", "image/png")) as cached:
+            with urllib.request.urlopen(
+                f"http://127.0.0.1:{self.port}/api/image?url={quote(image_url, safe='')}"
+            ) as resp:
+                self.assertEqual(resp.status, 200)
+                self.assertEqual(resp.headers.get_content_type(), "image/png")
+                self.assertEqual(resp.read(), b"image-body")
+        cached.assert_called_once_with(image_url)
+
+    def test_image_proxy_falls_back_to_jsdelivr_for_github_raw(self):
+        image_url = "https://raw.githubusercontent.com/GMyhf/img/main/img/1779708912.png"
+
+        def fake_fetch(url):
+            if url == image_url:
+                raise urllib.error.URLError("dns")
+            self.assertEqual(url, "https://cdn.jsdelivr.net/gh/GMyhf/img@main/img/1779708912.png")
+            return b"image-body", "image/png"
+
+        with tempfile.TemporaryDirectory() as tmp, \
+                patch("vibe_cs101.server.IMAGE_CACHE_DIR", Path(tmp)), \
+                patch("vibe_cs101.server._fetch_image_url", side_effect=fake_fetch):
+            body, ctype = server._cached_image(image_url)
+        self.assertEqual(body, b"image-body")
+        self.assertEqual(ctype, "image/png")
 
     def test_sol101_static_route_serves_built_site(self):
         with tempfile.TemporaryDirectory() as tmp:

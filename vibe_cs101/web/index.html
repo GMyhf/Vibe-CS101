@@ -674,6 +674,18 @@ const safeHttpUrl = s => {
     return ['http:', 'https:'].includes(u.protocol) ? u.href : '';
   } catch (e) { return ''; }
 };
+const proxiedImageUrl = url => {
+  const safe = safeHttpUrl(url);
+  return safe ? `/api/image?url=${encodeURIComponent(safe)}` : '';
+};
+const githubRawMirror = url => {
+  const prefix = 'https://raw.githubusercontent.com/';
+  if (!String(url || '').startsWith(prefix)) return '';
+  const parts = String(url).slice(prefix.length).split('/');
+  if (parts.length < 4) return '';
+  const [owner, repo, ref, ...path] = parts;
+  return `https://cdn.jsdelivr.net/gh/${owner}/${repo}@${ref}/${path.join('/')}`;
+};
 const baseName = s => String(s || '').split('/').pop();
 
 function setUser(me) {
@@ -818,12 +830,47 @@ async function initSessions() {
 $('#chat-new').onclick = newSess;
 
 /* ---- markdown-lite 渲染 ---- */
-const inlineMd = s => esc(s)
-  .replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer">')
+function renderImage(src, alt = '', styleText = '') {
+  const safe = safeHttpUrl(src);
+  const proxied = proxiedImageUrl(safe);
+  if (!proxied) return esc(alt || src || '');
+  const mirror = githubRawMirror(safe);
+  const zoom = String(styleText || '').match(/zoom\s*:\s*(\d+(?:\.\d+)?)\s*%/i);
+  const width = zoom ? Math.max(10, Math.min(100, Number(zoom[1]))) : 100;
+  return `<img src="${esc(proxied)}" data-src-original="${esc(safe)}" data-src-mirror="${esc(mirror)}" alt="${esc(alt || 'img')}" loading="lazy" referrerpolicy="no-referrer" style="max-width:${width}%;height:auto">`;
+}
+function activateImages(root) {
+  root.querySelectorAll('img[data-src-original]').forEach(img => {
+    img.onerror = () => {
+      const mirror = img.dataset.srcMirror;
+      const original = img.dataset.srcOriginal;
+      if (mirror && img.src !== mirror) {
+        img.src = mirror;
+        img.dataset.srcMirror = '';
+      } else if (original && img.src !== original) {
+        img.src = original;
+        img.dataset.srcOriginal = '';
+      }
+    };
+  });
+}
+function renderHtmlImages(s) {
+  return s.replace(/&lt;img\b([\s\S]*?)\/?&gt;/gi, (m, attrs) => {
+    const quoted = name => attrs.match(new RegExp(`\\b${name}=(?:&quot;([\\s\\S]*?)&quot;|'([^']*)'|([^\\s&]+))`, 'i'));
+    const src = quoted('src');
+    if (!src) return m;
+    const alt = quoted('alt');
+    const style = quoted('style');
+    const decode = v => String(v || '').replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+    return renderImage(decode(src[1] || src[2] || src[3]), decode((alt && (alt[1] || alt[2] || alt[3])) || 'img'), decode((style && (style[1] || style[2])) || ''));
+  });
+}
+const inlineMd = s => renderHtmlImages(esc(s)
+  .replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g, (m, alt, url) => renderImage(url, alt))
   .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   .replace(/`([^`\n]+)`/g, '<code>$1</code>')
   .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
-  .replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
+  .replace(/\*([^*\n]+)\*/g, '<em>$1</em>'));
 const isTableSep = line => /^\s*\|?\s*:?-{3,}:?\s*(\|\s*:?-{3,}:?\s*)+\|?\s*$/.test(line);
 const tableCells = line => {
   let t = line.trim();
@@ -906,6 +953,7 @@ function showMarkdownDoc(title, meta, content) {
   const view = $('#section-view');
   view.className = 'rendered';
   view.innerHTML = mdLite(content || '');
+  activateImages(view);
   $('#section-dialog').showModal();
 }
 function showIndexedDoc(doc) {
@@ -920,6 +968,7 @@ function showIndexedDoc(doc) {
   view.innerHTML = sections.map(s =>
     `<section class="section-anchor" data-section-id="${s.id}">${mdLite(s.content || '')}</section>`
   ).join('');
+  activateImages(view);
   $('#section-dialog').showModal();
   setTimeout(() => {
     const target = view.querySelector(`[data-section-id="${doc.matched_section_id}"]`);
@@ -991,7 +1040,9 @@ function addCodeCopyButtons(div) {
   });
 }
 function finishBotMsg(div, rawText, seconds, events) {
-  div.querySelector('.content').innerHTML = mdLite(rawText);
+  const content = div.querySelector('.content');
+  content.innerHTML = mdLite(rawText);
+  activateImages(content);
   addCodeCopyButtons(div);
   if (events && events.length) {
     const ev = document.createElement('div');
@@ -1034,6 +1085,7 @@ async function sendChat() {
     lastRender = now;
     const content = waiting.querySelector('.content');
     content.innerHTML = answer ? mdLite(answer) : '<p class="muted">检索资料中…</p>';
+    activateImages(content);
     let ev = waiting.querySelector('.events');
     if (events.length) {
       if (!ev) {
@@ -1419,6 +1471,7 @@ async function openSolution(setName, path) {
   $('#solution-reader-body').style.display = '';
   $('#solution-meta').textContent = `${d.set_title} / ${d.path}${d.meta ? ` · ${d.meta}` : ''}`;
   $('#solution-content').innerHTML = mdLite(stripFirstH1(d.content || ''));
+  activateImages($('#solution-content'));
   addCodeCopyButtons($('#solution-content'));
   renderSolutionNav(d);
   solutionState.active = key;

@@ -20,6 +20,7 @@ API:
     GET  /api/solutions/list?set=      原生题解查询：列出题集题目
     GET  /api/solutions/search?q=&set=&limit=  原生题解查询：搜索题目
     GET  /api/solutions/file?set=&path=        原生题解查询：读取 Markdown
+    GET  /api/image?url=               白名单远程图片代理（供 Markdown 图片渲染）
     GET  /api/mistakes?view=all|due    错题列表
     POST /api/mistakes                 记错题 {problem, course?, tags?, reason?, note?, link?, section_id?}
     GET  /api/mistakes/{id}            读取错题详情
@@ -46,6 +47,7 @@ API:
 from __future__ import annotations
 
 import csv
+import hashlib
 import hmac
 import io
 import ipaddress
@@ -54,6 +56,9 @@ import re
 import ssl
 import threading
 import uuid
+import urllib.error
+import urllib.request
+import socket
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -92,6 +97,25 @@ SOL101_SET_META = {
 }
 SOL101_SKIP_DIRS = {".vitepress", "public", "__pycache__"}
 SOL101_MAX_FILE = 2_000_000
+IMAGE_CACHE_DIR = DATA_DIR / "image_cache"
+IMAGE_PROXY_MAX_BYTES = 8_000_000
+IMAGE_PROXY_TIMEOUT = 8
+IMAGE_PROXY_ALLOWED_TYPES = {
+    "image/png",
+    "image/jpeg",
+    "image/gif",
+    "image/webp",
+    "image/bmp",
+}
+IMAGE_PROXY_HOSTS = {
+    "raw.githubusercontent.com",
+    "assets.leetcode.com",
+    "assets.leetcode.cn",
+    "pic.leetcode.cn",
+    "s3-lc-upload.s3.amazonaws.com",
+    "cdn.jsdelivr.net",
+}
+IMAGE_PROXY_HOST_SUFFIXES = (".githubusercontent.com", ".leetcode.com", ".leetcode.cn")
 
 
 def _sol101_set_order() -> list[str]:
@@ -430,6 +454,94 @@ def _is_loopback(host: str) -> bool:
         return False
 
 
+def _image_proxy_allowed(raw_url: str) -> str | None:
+    try:
+        parsed = urlparse(raw_url)
+    except ValueError:
+        return None
+    if parsed.scheme not in ("http", "https") or parsed.username or parsed.password:
+        return None
+    host = (parsed.hostname or "").lower()
+    if not host:
+        return None
+    if host in IMAGE_PROXY_HOSTS or any(host.endswith(s) for s in IMAGE_PROXY_HOST_SUFFIXES):
+        return raw_url
+    return None
+
+
+def _github_raw_mirror(raw_url: str) -> str | None:
+    prefix = "https://raw.githubusercontent.com/"
+    if not raw_url.startswith(prefix):
+        return None
+    parts = raw_url[len(prefix):].split("/")
+    if len(parts) < 4:
+        return None
+    owner, repo, ref, *path = parts
+    if not owner or not repo or not ref or not path:
+        return None
+    return f"https://cdn.jsdelivr.net/gh/{owner}/{repo}@{ref}/{'/'.join(path)}"
+
+
+def _fetch_image_url(url: str) -> tuple[bytes, str]:
+    req = urllib.request.Request(
+        url,
+        headers={
+            "User-Agent": "vibe-cs101-image-proxy/1.0",
+            "Accept": "image/png,image/jpeg,image/gif,image/webp,image/bmp,*/*;q=0.5",
+        },
+    )
+    with urllib.request.urlopen(req, timeout=IMAGE_PROXY_TIMEOUT) as resp:
+        final_url = resp.geturl()
+        if final_url != url and not _image_proxy_allowed(final_url):
+            raise ValueError("image redirect host is not allowed")
+        ctype = resp.headers.get_content_type()
+        if ctype not in IMAGE_PROXY_ALLOWED_TYPES:
+            raise ValueError("remote resource is not a supported image")
+        size = int(resp.headers.get("Content-Length") or 0)
+        if size > IMAGE_PROXY_MAX_BYTES:
+            raise ValueError("image is too large")
+        body = resp.read(IMAGE_PROXY_MAX_BYTES + 1)
+    return body, ctype
+
+
+def _cached_image(raw_url: str) -> tuple[bytes, str]:
+    url = _image_proxy_allowed(raw_url)
+    if not url:
+        raise ValueError("image host is not allowed")
+    IMAGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    key = hashlib.sha256(url.encode("utf-8")).hexdigest()
+    body_path = IMAGE_CACHE_DIR / f"{key}.body"
+    meta_path = IMAGE_CACHE_DIR / f"{key}.json"
+    if body_path.is_file() and meta_path.is_file():
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            ctype = str(meta.get("content_type") or "application/octet-stream")
+            return body_path.read_bytes(), ctype
+        except (OSError, json.JSONDecodeError):
+            pass
+
+    urls = [u for u in (_github_raw_mirror(url), url) if u]
+    errors = []
+    for candidate in urls:
+        try:
+            body, ctype = _fetch_image_url(candidate)
+            break
+        except (urllib.error.URLError, TimeoutError, socket.timeout, ValueError) as exc:
+            errors.append(str(exc))
+    else:
+        raise ValueError(f"image fetch failed: {'; '.join(errors)}")
+    if len(body) > IMAGE_PROXY_MAX_BYTES:
+        raise ValueError("image is too large")
+
+    body_tmp = body_path.with_suffix(".body.tmp")
+    meta_tmp = meta_path.with_suffix(".json.tmp")
+    body_tmp.write_bytes(body)
+    meta_tmp.write_text(json.dumps({"content_type": ctype}), encoding="utf-8")
+    body_tmp.replace(body_path)
+    meta_tmp.replace(meta_path)
+    return body, ctype
+
+
 class Handler(BaseHTTPRequestHandler):
     server_version = "vibe-cs101"
 
@@ -440,7 +552,10 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("Content-Type", "application/json; charset=utf-8")
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
-        self.wfile.write(body)
+        try:
+            self.wfile.write(body)
+        except BrokenPipeError:
+            self.close_connection = True
 
     def _sse_start(self) -> None:
         self.send_response(200)
@@ -597,6 +712,20 @@ class Handler(BaseHTTPRequestHandler):
             return
         if not url.path.startswith("/api/"):
             self._serve_static(url.path)
+            return
+        if url.path == "/api/image":
+            raw_url = q.get("url", [""])[0]
+            try:
+                body, ctype = _cached_image(raw_url)
+            except Exception as exc:  # noqa: BLE001 - image fetch/cache failures should not drop the HTTP response
+                self._error(404, f"image fetch failed: {exc}")
+                return
+            self.send_response(200)
+            self.send_header("Content-Type", ctype)
+            self.send_header("Cache-Control", "public, max-age=604800")
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
             return
         user = self._require_auth()
         if user is None:
