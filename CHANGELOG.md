@@ -52,6 +52,8 @@
 - Changed the native solution browser to open a solution-set directory by default, list every problem number and title, and render Markdown with code-block copy controls.
 - Matched the solution-set list order to the upstream `sol101` sidebar order, simplified problem cards to problem number and title, removed the duplicated reader title, and added Previous/Next page navigation below each solution.
 - Switched the live LLM model setting from unsupported `gpt-5.2` to `gpt-5.4` for the configured `surplustoken.com` endpoint.
+- Simplified the member-management name column so it shows only the display name, not the username/student ID twice.
+- Updated the student tutorial and README with online deployment usage, per-user keys, role-based management, behavior-log disclosure, knowledge-base browsing, and the native solution browser workflow.
 
 ### Verified
 - Confirmed `.env` is active through `/api/info`: `llm_configured` is `true`, model is `gpt-5.2`.
@@ -65,6 +67,7 @@
 - Verified the live `oj` solution list returns all 377 OpenJudge problems and includes `24834: 通配符匹配`.
 - Verified local OpenJudge navigation order around `E01218: THE DRUNK JAILER`.
 - Verified a live chat request returns normally with `gpt-5.4`.
+- Updated and verified the live `remote` teacher profile as student ID `0006173231`, display name `闫宏飞`.
 
 ### Notes
 - Behavior logs include user actions and chat question summaries. Teachers and assistants can view these logs, so student-facing usage notes should disclose this.

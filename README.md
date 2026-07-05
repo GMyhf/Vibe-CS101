@@ -50,10 +50,11 @@ python3 -m vibe_cs101 ask "什么是单调栈？给个例题"
 python3 -m vibe_cs101 chat              # 交互式多轮对话
 python3 -m vibe_cs101 info              # 查看配置与索引状态
 
-# 6. Web UI（对话 / 检索 / 错题本 / 学习进度，四合一）
+# 6. Web UI（对话 / 检索 / 知识库 / 题解查询 / 错题本 / 学习进度）
 python3 -m vibe_cs101 serve             # http://127.0.0.1:8101
 
 # 远程访问需先启用鉴权；多用户会自动隔离错题本和对话会话
+# teacher 可进入管理页维护成员、课程资源和行为日志
 python3 -m vibe_cs101 user add alice    # 推荐：创建用户（key 加盐哈希落盘，仅显示一次）
 python3 -m vibe_cs101 user list         # 用户管理：add / list / reset / rm，即时生效
 # 或临时用环境变量：export VIBE_CS101_AUTH_KEYS='alice:alice-key,bob:bob-key'
@@ -96,9 +97,10 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
   `data/journal.db`；Web UI 多用户模式按 `data/journal-<user>.db` 隔离。
 - **Web UI** `server.py` + `web/`：架构参照 Vibe-Trading（后端 REST API + 单页
   前端），但保持零依赖：标准库 ThreadingHTTPServer + 无构建的原生 JS 单页应用。
-  四个页面：💬 对话（多轮会话）、🔍 检索、📌 错题本、📈 学习进度。默认只监听
+  页面包括对话、检索、知识库、原生题解查询、错题本、学习进度和管理页。默认只监听
   127.0.0.1；绑定非本机地址时必须启用鉴权（环境变量 key 或 `user add` 创建的
   用户），并建议通过 `--tls-cert/--tls-key` 或反向代理启用 HTTPS。
+  管理页支持成员管理、课程资源配置、学生行为日志翻页和 CSV 导出。
 - **会话持久化** `sessions.py`：每轮对话后把完整上下文存入 `data/sessions.db`，
   服务重启后可从会话列表恢复继续；前端支持切换/删除历史会话。
 - **用户管理** `users.py`：`vibe-cs101 user add/list/reset/rm`，key 加盐 SHA-256

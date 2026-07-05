@@ -1594,7 +1594,7 @@ function renderAdminUsers() {
   const tbody = $('#admin-users tbody');
   tbody.innerHTML = rows.length ? rows.map(u => `
     <tr><td>${esc(u.student_id || u.name)}</td>
-      <td><strong>${esc(u.display_name || u.name)}</strong><div class="muted">${esc(u.name)}</div></td>
+      <td>${esc(u.display_name || u.name)}</td>
       <td>${esc(u.department || '-')}</td>
       <td>${roleSelect(u.name, u.role)}</td>
       <td class="muted">${esc(u.created || '-')}</td>
