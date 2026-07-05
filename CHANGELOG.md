@@ -16,6 +16,7 @@
 - Added batch student import from pasted rows using newline, comma, semicolon, space, or tab separators.
 - Added member CSV export with student ID, name, department, role, join time, last seen, and username.
 - Added member key reset and member deletion actions for teachers.
+- Added pagination controls and CSV export for student behavior logs in the management page.
 - Added a left-panel `sol101` solution-search tool served locally from `/sol101/`, built from `https://github.com/FuYnAloft/sol101`.
 - Added `scripts/update_sol101.sh` and `scripts/update_sol101.py` to build the local `sol101` solution site from all answer sources supported by FuYnAloft/sol101.
 - Added a system cron job at `/etc/cron.d/vibe-cs101-sol101` to refresh and rebuild the local `sol101` site daily at 04:20.
@@ -45,6 +46,12 @@
 - Added timeout protection to the `sol101` update script so cron jobs do not hang indefinitely on slow GitHub or source-update requests.
 - Expanded the local `sol101` build from only OpenJudge/Codeforces to every upstream-supported answer set, including LeetCode, Sunnywhy, and C++.
 - Reworked the left-panel solution search from an embedded VitePress iframe into a native Vibe-CS101 interface with solution-set filters, local search, and Markdown reading.
+- Extended `/api/admin/logs` with `total`, `limit`, and `offset` metadata, and added `/api/admin/logs/export` for filtered CSV downloads.
+- Fixed CSV download responses by removing a local `quote` import collision that could truncate export responses.
+- Added `/api/solutions/list?set=...` so the native solution browser can show the complete problem list for each solution set.
+- Changed the native solution browser to open a solution-set directory by default, list every problem number and title, and render Markdown with code-block copy controls.
+- Matched the solution-set list order to the upstream `sol101` sidebar order, simplified problem cards to problem number and title, removed the duplicated reader title, and added Previous/Next page navigation below each solution.
+- Switched the live LLM model setting from unsupported `gpt-5.2` to `gpt-5.4` for the configured `surplustoken.com` endpoint.
 
 ### Verified
 - Confirmed `.env` is active through `/api/info`: `llm_configured` is `true`, model is `gpt-5.2`.
@@ -53,7 +60,11 @@
 - Built the local `sol101` VitePress static site into `data/sol101/docs/.vitepress/dist`; the served homepage now includes OpenJudge, Codeforces, LeetCode, Sunnywhy, and C++ entries.
 - Rebuilt `data/index.db`; `/api/info` reports 5,521 indexed sections including 221 `cpp` solution sections.
 - Confirmed the system cron daemon is active and `/etc/cron.d/vibe-cs101-sol101` is installed.
-- Ran the full test suite: `python3 -m unittest discover -s tests -v` passed with 123 tests.
+- Ran the full test suite: `python3 -m unittest discover -s tests` passed with 125 tests.
+- Verified the live behavior-log pagination endpoint and CSV export on `http://10.129.81.235:8101`.
+- Verified the live `oj` solution list returns all 377 OpenJudge problems and includes `24834: 通配符匹配`.
+- Verified local OpenJudge navigation order around `E01218: THE DRUNK JAILER`.
+- Verified a live chat request returns normally with `gpt-5.4`.
 
 ### Notes
 - Behavior logs include user actions and chat question summaries. Teachers and assistants can view these logs, so student-facing usage notes should disclose this.

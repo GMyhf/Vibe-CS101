@@ -352,6 +352,8 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(status, 403)
         status, data = self.request("/api/admin/logs", key=student_key)
         self.assertEqual(status, 403)
+        status, data = self.request("/api/admin/logs/export", key=student_key)
+        self.assertEqual(status, 403)
 
     def test_assistant_can_manage_courses_and_view_logs_not_users(self):
         assistant_key = users.add_user("ta", role="assistant")
@@ -403,6 +405,29 @@ class ServerTests(unittest.TestCase):
         actions = [e["action"] for e in data["events"]]
         self.assertIn("search", actions)
         self.assertIn("mistakes_view", actions)
+
+    def test_admin_logs_support_pagination_and_export(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        for i in range(5):
+            audit.log("student", "student", "search", {"i": i})
+
+        status, data = self.request("/api/admin/logs?user=student&limit=2&offset=1", key=teacher_key)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["total"], 5)
+        self.assertEqual(data["limit"], 2)
+        self.assertEqual(data["offset"], 1)
+        self.assertEqual(len(data["events"]), 2)
+        self.assertEqual(data["events"][0]["detail"]["i"], 3)
+
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/admin/logs/export?user=student",
+            headers={"Authorization": f"Bearer {teacher_key}"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            csv_text = resp.read().decode("utf-8-sig")
+        self.assertIn("时间,用户,角色,行为,详情", csv_text)
+        self.assertIn("student,student,search", csv_text)
+        self.assertIn('"{""i"": 4}"', csv_text)
 
     def test_auth_failures_are_rate_limited(self):
         server.AUTH_KEYS = {"alice": "alice-key"}
@@ -500,16 +525,33 @@ class ServerTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             docs = Path(tmp)
             (docs / "cf").mkdir()
+            (docs / ".vitepress").mkdir()
+            (docs / ".vitepress" / "config.mjs").write_text(
+                "sidebar: {'/cf': {items: [{ text: '2A. Winner', link: '/cf/2a' },"
+                "{ text: '1A. Theatre Square', link: '/cf/1a' }]}}",
+                encoding="utf-8",
+            )
             (docs / "cf" / "1a.md").write_text(
                 "# 1A. Theatre Square\n\nmath, http://codeforces.com/problemset/problem/1/A\n\n"
                 "Use ceiling division.",
+                encoding="utf-8",
+            )
+            (docs / "cf" / "2a.md").write_text(
+                "# 2A. Winner\n\ngreedy, http://codeforces.com/problemset/problem/2/A\n\nTrack scores.",
                 encoding="utf-8",
             )
             with patch("vibe_cs101.server.SOL101_DOCS_DIR", docs):
                 status, data = self.request("/api/solutions", key=student_key)
                 self.assertEqual(status, 200)
                 self.assertEqual(data["sets"][0]["name"], "cf")
-                self.assertEqual(data["sets"][0]["count"], 1)
+                self.assertEqual(data["sets"][0]["count"], 2)
+
+                status, data = self.request("/api/solutions/list?set=cf", key=student_key)
+                self.assertEqual(status, 200)
+                self.assertEqual(data["set"]["name"], "cf")
+                self.assertEqual([x["path"] for x in data["items"]], ["2a.md", "1a.md"])
+                self.assertEqual(data["items"][0]["title"], "2A. Winner")
+                self.assertEqual(data["items"][0]["next"]["path"], "1a.md")
 
                 status, data = self.request("/api/solutions/search?q=Theatre&set=cf", key=student_key)
                 self.assertEqual(status, 200)
@@ -520,8 +562,12 @@ class ServerTests(unittest.TestCase):
                 self.assertEqual(status, 200)
                 self.assertEqual(data["title"], "1A. Theatre Square")
                 self.assertIn("ceiling division", data["content"])
+                self.assertEqual(data["prev"]["path"], "2a.md")
+                self.assertIsNone(data["next"])
 
                 status, _ = self.request("/api/solutions/file?set=cf&path=../secret.md", key=student_key)
+                self.assertEqual(status, 404)
+                status, _ = self.request("/api/solutions/list?set=missing", key=student_key)
                 self.assertEqual(status, 404)
 
     def test_sol101_static_route_serves_built_site(self):

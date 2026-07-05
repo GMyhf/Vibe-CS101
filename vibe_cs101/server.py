@@ -17,6 +17,7 @@ API:
     GET  /api/library/file?source=&path=[&download=1]   查看/下载原始文件
     GET  /api/sol101                   题解查询工具入口配置
     GET  /api/solutions                原生题解查询：题解集列表
+    GET  /api/solutions/list?set=      原生题解查询：列出题集题目
     GET  /api/solutions/search?q=&set=&limit=  原生题解查询：搜索题目
     GET  /api/solutions/file?set=&path=        原生题解查询：读取 Markdown
     GET  /api/mistakes?view=all|due    错题列表
@@ -35,6 +36,7 @@ API:
     GET  /api/admin/courses            教师/助教查看课程资源配置
     POST /api/admin/courses/{course}   教师/助教指定课件和题解 {resources}
     GET  /api/admin/logs               教师/助教查看学生行为日志
+    GET  /api/admin/logs/export        教师/助教导出学生行为日志 CSV
 
 鉴权：VIBE_CS101_AUTH_KEY(S) 环境变量 + `vibe-cs101 user add` 管理的持久化用户（二者并存）。
 限流：VIBE_CS101_RATE_API / _RATE_CHAT（按用户）、_RATE_AUTHFAIL（按 IP），超限返回 429。
@@ -43,7 +45,9 @@ API:
 
 from __future__ import annotations
 
+import csv
 import hmac
+import io
 import ipaddress
 import json
 import re
@@ -52,7 +56,7 @@ import threading
 import uuid
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
-from urllib.parse import parse_qs, urlparse
+from urllib.parse import parse_qs, quote, urlparse
 
 from . import audit, courses, journal, ratelimit, sessions, store, users
 from .config import (
@@ -160,6 +164,21 @@ def _query_terms(query: str) -> list[str]:
     return [t for t in terms if len(t) >= 1]
 
 
+def _solution_sidebar_order(set_name: str) -> dict[str, int]:
+    config = SOL101_DOCS_DIR / ".vitepress" / "config.mjs"
+    if not config.is_file():
+        return {}
+    text = config.read_text(encoding="utf-8", errors="replace")
+    links = re.findall(rf"link:\s*'/{re.escape(set_name)}/([^']+)'", text)
+    order: dict[str, int] = {}
+    for i, link in enumerate(links):
+        path = link.lstrip("/")
+        if not path.endswith(".md"):
+            path += ".md"
+        order.setdefault(path, i)
+    return order
+
+
 def _solution_snippet(text: str, terms: list[str], max_len: int = 180) -> str:
     compact = re.sub(r"\s+", " ", text).strip()
     if not compact:
@@ -195,6 +214,45 @@ def _solution_entry(set_name: str, file: Path, terms: list[str] | None = None) -
         "meta": meta,
         "snippet": _solution_snippet(text, terms or []),
     }
+
+
+def _list_solutions(set_name: str) -> list[dict]:
+    if set_name not in _sol101_set_order():
+        return []
+    root = SOL101_DOCS_DIR / set_name
+    if not root.is_dir():
+        return []
+    entries = [
+        _solution_entry(set_name, file, [])
+        for file in sorted(root.glob("*.md"))
+        if file.name != "index.md" and file.stat().st_size <= SOL101_MAX_FILE
+    ]
+    order = _solution_sidebar_order(set_name)
+    entries.sort(key=lambda e: (order.get(e["path"], len(order) + 1), e["path"]))
+    nav = [_solution_nav_item(entry) for entry in entries]
+    for i, entry in enumerate(entries):
+        entry["prev"] = nav[i - 1] if i > 0 else None
+        entry["next"] = nav[i + 1] if i + 1 < len(entries) else None
+    return entries
+
+
+def _solution_nav_item(entry: dict) -> dict:
+    return {
+        "set": entry["set"],
+        "set_title": entry["set_title"],
+        "path": entry["path"],
+        "title": entry["title"],
+    }
+
+
+def _solution_neighbors(set_name: str, rel_path: str) -> tuple[dict | None, dict | None]:
+    entries = _list_solutions(set_name)
+    for i, entry in enumerate(entries):
+        if entry["path"] == rel_path:
+            prev_item = _solution_nav_item(entries[i - 1]) if i > 0 else None
+            next_item = _solution_nav_item(entries[i + 1]) if i + 1 < len(entries) else None
+            return prev_item, next_item
+    return None, None
 
 
 def _search_solutions(query: str, set_name: str | None, limit: int) -> list[dict]:
@@ -660,8 +718,6 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
                 if download:
-                    from urllib.parse import quote
-
                     self.send_header(
                         "Content-Disposition",
                         f"attachment; filename*=UTF-8''{quote(file.name)}",
@@ -682,6 +738,14 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/solutions":
                 _log_action(user, "solutions_list", {})
                 self._json({"sets": _sol101_sets(), "site_url": "/sol101/"})
+            elif url.path == "/api/solutions/list":
+                set_name = q.get("set", [""])[0]
+                if set_name not in _sol101_set_order():
+                    self._error(404, "solution set not found")
+                    return
+                items = _list_solutions(set_name)
+                _log_action(user, "solutions_list", {"set": set_name, "count": len(items)})
+                self._json({"set": _sol101_set_info(set_name), "items": items})
             elif url.path == "/api/solutions/search":
                 query = q.get("q", [""])[0]
                 set_name = q.get("set", [None])[0] or None
@@ -703,6 +767,7 @@ class Handler(BaseHTTPRequestHandler):
                 text = file.read_text(encoding="utf-8", errors="replace")
                 title, meta = _solution_title_and_meta(text, file.stem)
                 set_info = _sol101_set_info(set_name)
+                prev_item, next_item = _solution_neighbors(set_name, rel_path)
                 _log_action(
                     user,
                     "solution_read",
@@ -717,6 +782,8 @@ class Handler(BaseHTTPRequestHandler):
                         "path": rel_path,
                         "title": title,
                         "meta": meta,
+                        "prev": prev_item,
+                        "next": next_item,
                         "content": text,
                     }
                 )
@@ -759,9 +826,6 @@ class Handler(BaseHTTPRequestHandler):
                 if not _can_manage_users(user):
                     self._error(403, "需要教师权限")
                     return
-                import csv
-                import io
-                from urllib.parse import quote
 
                 out = io.StringIO()
                 writer = csv.writer(out)
@@ -788,6 +852,37 @@ class Handler(BaseHTTPRequestHandler):
                 )
                 self.end_headers()
                 self.wfile.write(body)
+            elif url.path == "/api/admin/logs/export":
+                if not _can_view_student_logs(user):
+                    self._error(403, "需要教师或助教权限")
+                    return
+                target = q.get("user", [None])[0] or None
+                action = q.get("action", [None])[0] or None
+                events = audit.list_events(user=target, action=action, limit=10000, max_limit=10000)
+
+                out = io.StringIO()
+                writer = csv.writer(out)
+                writer.writerow(["时间", "用户", "角色", "行为", "详情"])
+                for event in events:
+                    writer.writerow(
+                        [
+                            event["ts"],
+                            event["user"],
+                            event["role"],
+                            event["action"],
+                            json.dumps(event["detail"], ensure_ascii=False, sort_keys=True),
+                        ]
+                    )
+                body = out.getvalue().encode("utf-8-sig")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header(
+                    "Content-Disposition",
+                    f"attachment; filename*=UTF-8''{quote('behavior-logs.csv')}",
+                )
+                self.end_headers()
+                self.wfile.write(body)
             elif url.path == "/api/admin/courses":
                 if not _can_manage_courses(user):
                     self._error(403, "需要教师或助教权限")
@@ -800,8 +895,17 @@ class Handler(BaseHTTPRequestHandler):
                 target = q.get("user", [None])[0] or None
                 action = q.get("action", [None])[0] or None
                 limit = int(q.get("limit", ["200"])[0])
-                events = audit.list_events(user=target, action=action, limit=limit)
-                self._json({"events": events})
+                offset = int(q.get("offset", ["0"])[0])
+                events = audit.list_events(user=target, action=action, limit=limit, offset=offset)
+                total = audit.count_events(user=target, action=action)
+                self._json(
+                    {
+                        "events": events,
+                        "total": total,
+                        "limit": max(1, min(limit, 500)),
+                        "offset": max(0, offset),
+                    }
+                )
             else:
                 self._error(404, "unknown endpoint")
         except Exception as exc:  # noqa: BLE001

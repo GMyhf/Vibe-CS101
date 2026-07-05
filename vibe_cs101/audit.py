@@ -55,16 +55,8 @@ def log(
     conn.close()
 
 
-def list_events(
-    user: str | None = None,
-    action: str | None = None,
-    limit: int = 200,
-    db_path: Path | None = None,
-) -> list[dict]:
-    if not (db_path or AUDIT_DB).is_file():
-        return []
-    limit = max(1, min(int(limit), 500))
-    sql = "SELECT id, ts, user, role, action, detail_json FROM audit_events WHERE 1=1"
+def _filters(user: str | None = None, action: str | None = None) -> tuple[str, list[object]]:
+    sql = " WHERE 1=1"
     args: list[object] = []
     if user:
         sql += " AND user = ?"
@@ -72,8 +64,26 @@ def list_events(
     if action:
         sql += " AND action = ?"
         args.append(action)
-    sql += " ORDER BY id DESC LIMIT ?"
-    args.append(limit)
+    return sql, args
+
+
+def list_events(
+    user: str | None = None,
+    action: str | None = None,
+    limit: int = 200,
+    offset: int = 0,
+    db_path: Path | None = None,
+    max_limit: int = 500,
+) -> list[dict]:
+    if not (db_path or AUDIT_DB).is_file():
+        return []
+    limit = max(1, min(int(limit), max_limit))
+    offset = max(0, int(offset))
+    where_sql, args = _filters(user=user, action=action)
+    sql = "SELECT id, ts, user, role, action, detail_json FROM audit_events"
+    sql += where_sql
+    sql += " ORDER BY id DESC LIMIT ? OFFSET ?"
+    args.extend([limit, offset])
     conn = _connect(db_path)
     rows = conn.execute(sql, args).fetchall()
     conn.close()
@@ -88,3 +98,17 @@ def list_events(
         }
         for row in rows
     ]
+
+
+def count_events(
+    user: str | None = None,
+    action: str | None = None,
+    db_path: Path | None = None,
+) -> int:
+    if not (db_path or AUDIT_DB).is_file():
+        return 0
+    where_sql, args = _filters(user=user, action=action)
+    conn = _connect(db_path)
+    row = conn.execute("SELECT COUNT(*) FROM audit_events" + where_sql, args).fetchone()
+    conn.close()
+    return int(row[0] if row else 0)

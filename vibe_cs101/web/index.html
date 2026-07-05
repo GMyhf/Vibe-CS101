@@ -92,7 +92,7 @@
   .code-copy { position: absolute; top: 6px; right: 6px; border: 1px solid var(--border);
                background: var(--card); color: var(--muted); border-radius: 6px;
                font-size: 12px; padding: 3px 8px; cursor: pointer; opacity: 0; transition: opacity .15s; }
-  .msg.bot pre:hover .code-copy { opacity: 1; }
+  .msg.bot pre:hover .code-copy, .solution-content pre:hover .code-copy { opacity: 1; }
   .code-copy:hover { color: var(--ink); }
   .msg.bot table { display: block; width: 100%; overflow-x: auto; margin: 10px 0;
          border-collapse: collapse; font-size: 13px; }
@@ -199,7 +199,7 @@
   .solution-head { padding: 14px 18px; border-bottom: 1px solid var(--border); display: grid; gap: 10px; }
   .solution-head h2 { margin: 0; font-size: 18px; }
   .solution-head .topline { display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; }
-  .solution-layout { min-height: 0; display: grid; grid-template-columns: 360px minmax(0, 1fr); }
+  .solution-layout { min-height: 0; display: grid; grid-template-columns: 420px minmax(0, 1fr); }
   .solution-sidebar { min-height: 0; overflow-y: auto; border-right: 1px solid var(--border); padding: 14px; background: #fafafa; }
   .solution-reader { min-height: 0; overflow-y: auto; padding: 18px 24px; }
   .solution-sets { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin-bottom: 14px; }
@@ -210,12 +210,14 @@
   .solution-set b { display: block; font-size: 13px; line-height: 1.25; }
   .solution-set span { color: var(--muted); font-size: 11px; }
   .solution-results { display: grid; gap: 8px; }
-  .solution-item { width: 100%; display: grid; grid-template-columns: 38px minmax(0, 1fr); gap: 9px;
+  .solution-list-head { display: flex; justify-content: space-between; gap: 8px; align-items: center;
+                        color: var(--muted); font-size: 12px; margin: 4px 0 8px; }
+  .solution-item { width: 100%; display: grid; grid-template-columns: 72px minmax(0, 1fr); gap: 10px;
                    border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 10px;
                    text-align: left; cursor: pointer; color: var(--ink); }
   .solution-item:hover, .solution-item.active { border-color: #c7d2fe; box-shadow: 0 6px 16px rgba(79,70,229,.07); }
   .solution-item.active { background: #fbfbff; }
-  .solution-badge { width: 38px; height: 38px; border-radius: 9px; display: grid; place-items: center;
+  .solution-badge { min-width: 72px; height: 38px; border-radius: 9px; display: grid; place-items: center;
                     background: var(--brand-soft); color: var(--brand); font-size: 12px; font-weight: 800; }
   .solution-item-title { font-weight: 650; font-size: 14px; line-height: 1.35; }
   .solution-item-meta { margin-top: 4px; color: var(--muted); font-size: 12px; line-height: 1.35; }
@@ -229,9 +231,22 @@
   .solution-content h1, .solution-content h2, .solution-content h3 { line-height: 1.3; margin: 16px 0 8px; }
   .solution-content p { margin: 7px 0; }
   .solution-content ul, .solution-content ol { margin: 6px 0 8px; padding-left: 22px; }
-  .solution-content pre { background: var(--code-bg); padding: 12px; border-radius: 8px; overflow-x: auto; }
+  .solution-content img, .msg.bot img, #section-view img { max-width: 100%; height: auto; display: block;
+                                                           margin: 10px 0; border-radius: 6px; }
+  .solution-content pre { background: var(--code-bg); padding: 12px; border-radius: 8px; overflow-x: auto;
+                          position: relative; }
   .solution-content code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; }
   .solution-content pre code { background: none; padding: 0; }
+  .solution-content pre[class^="language-"]::before { content: attr(data-lang); display: block;
+                    color: var(--muted); font-size: 11px; margin-bottom: 8px; text-transform: uppercase; }
+  .solution-bottom-nav { max-width: 900px; border-top: 1px solid var(--border); margin-top: 28px;
+                         padding-top: 14px; display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .solution-nav-link { border: 1px solid var(--border); border-radius: 10px; background: #fff; padding: 10px 12px;
+                       cursor: pointer; color: var(--ink); text-align: left; min-width: 0; }
+  .solution-nav-link:hover { border-color: #c7d2fe; color: var(--brand); }
+  .solution-nav-link.next { text-align: right; }
+  .solution-nav-link .label { display: block; color: var(--muted); font-size: 12px; margin-bottom: 3px; }
+  .solution-nav-link .title { display: block; font-weight: 650; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
   .admin-shell { max-width: 1120px; margin: 0 auto; }
   .admin-home { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
                 gap: 16px; margin-bottom: 18px; }
@@ -414,15 +429,13 @@
         <div id="solution-reader-empty" class="empty-state">选择左侧题目查看题解。</div>
         <div id="solution-reader-body" style="display:none">
           <div class="solution-reader-head">
-            <div>
-              <h1 id="solution-title"></h1>
-              <div id="solution-meta" class="solution-meta"></div>
-            </div>
+            <div id="solution-meta" class="solution-meta"></div>
             <div class="row">
               <button id="solution-copy" class="ghost">复制正文</button>
             </div>
           </div>
           <div id="solution-content" class="solution-content"></div>
+          <div id="solution-nav" class="solution-bottom-nav"></div>
         </div>
       </div>
     </div>
@@ -548,8 +561,25 @@
           </select>
           <button id="admin-log-refresh" class="ghost">刷新</button>
         </div>
+        <div class="right">
+          <select id="admin-log-limit" aria-label="每页日志数">
+            <option value="20" selected>20 / page</option>
+            <option value="50">50 / page</option>
+            <option value="100">100 / page</option>
+          </select>
+          <button id="admin-log-export" class="ghost">导出日志</button>
+        </div>
       </div>
-      <div class="admin-table"><table id="admin-logs"><thead><tr><th>时间</th><th>用户</th><th>角色</th><th>行为</th><th>详情</th></tr></thead><tbody></tbody></table></div>
+      <div class="admin-table"><table id="admin-logs"><thead><tr><th>时间</th><th>用户</th><th>角色</th><th>行为</th><th>详情</th></tr></thead><tbody></tbody></table>
+        <div class="admin-pagebar">
+          <span id="admin-logs-total">共 0 条记录</span>
+          <span class="row">
+            <button id="admin-log-prev" class="ghost">上一页</button>
+            <span id="admin-log-page">第 1 / 1 页</span>
+            <button id="admin-log-next" class="ghost">下一页</button>
+          </span>
+        </div>
+      </div>
     </div>
   </div></div>
 </section>
@@ -789,7 +819,7 @@ $('#chat-new').onclick = newSess;
 
 /* ---- markdown-lite 渲染 ---- */
 const inlineMd = s => esc(s)
-  .replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">[图片] $1</a>')
+  .replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g, '<img src="$2" alt="$1" loading="lazy" referrerpolicy="no-referrer">')
   .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   .replace(/`([^`\n]+)`/g, '<code>$1</code>')
   .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
@@ -827,15 +857,16 @@ function mdLite(text) {
   };
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i];
-    const fence = line.match(/^```/);
+    const fence = line.match(/^```\s*([A-Za-z0-9_+-]*)/);
     if (code) {
       if (fence) {
-        out.push(`<pre><code>${esc(code.lines.join('\n'))}</code></pre>`);
+        const langAttr = code.lang ? ` class="language-${esc(code.lang)}" data-lang="${esc(code.lang)}"` : '';
+        out.push(`<pre${langAttr}><code>${esc(code.lines.join('\n'))}</code></pre>`);
         code = null;
       } else code.lines.push(line);
       continue;
     }
-    if (fence) { flushPara(); flushList(); code = {lines: []}; continue; }
+    if (fence) { flushPara(); flushList(); code = {lines: [], lang: fence[1] || ''}; continue; }
     if (line.trim() === '') { flushPara(); flushList(); continue; }
     if (i + 1 < lines.length && line.includes('|') && isTableSep(lines[i + 1])) {
       flushPara(); flushList();
@@ -862,7 +893,10 @@ function mdLite(text) {
     if (bq) { flushPara(); flushList(); out.push(`<blockquote>${inlineMd(bq[1])}</blockquote>`); continue; }
     para.push(line.trim());
   }
-  if (code) out.push(`<pre><code>${esc(code.lines.join('\n'))}</code></pre>`);
+  if (code) {
+    const langAttr = code.lang ? ` class="language-${esc(code.lang)}" data-lang="${esc(code.lang)}"` : '';
+    out.push(`<pre${langAttr}><code>${esc(code.lines.join('\n'))}</code></pre>`);
+  }
   flushPara(); flushList();
   return out.join('');
 }
@@ -946,7 +980,7 @@ async function copyText(btn, text) {
   setTimeout(() => { btn.textContent = old; }, 1200);
 }
 function addCodeCopyButtons(div) {
-  div.querySelectorAll('.content pre').forEach(pre => {
+  div.querySelectorAll('.content pre, .solution-content pre').forEach(pre => {
     if (pre.querySelector('.code-copy')) return;
     const btn = document.createElement('button');
     btn.className = 'code-copy';
@@ -1252,18 +1286,25 @@ async function downloadLibFile(src, path) {
 
 /* ---- sol101 ---- */
 let solutionSets = [];
-let solutionState = {q: '', set: '', results: [], active: null, content: ''};
+let solutionState = {q: '', set: '', mode: 'list', results: [], active: null, content: ''};
 const solutionLabel = s => {
   const found = solutionSets.find(x => x.name === s);
   return found ? found.title : s;
 };
+const solutionProblemNo = path => baseName(path).replace(/\.md$/i, '');
+const solutionCleanTitle = (title, path) => {
+  const no = solutionProblemNo(path);
+  return String(title || no).replace(new RegExp(`^[A-Z]*${escRe(no)}\\s*[:.．、-]?\\s*`, 'i'), '').trim() || title || no;
+};
+const stripFirstH1 = text => String(text || '').replace(/^# .+(?:\r?\n)+/, '');
 async function loadSol101() {
   try {
     const d = await api('/api/solutions');
     solutionSets = d.sets || [];
     $('#sol101-open').href = d.site_url;
+    solutionState.set = solutionSets[0]?.name || '';
     renderSolutionSets();
-    await searchSolutions('', '');
+    await loadSolutionList(solutionState.set);
     sol101Loaded = true;
   } catch (e) {
     $('#solution-results').innerHTML = `<div class="empty-state">无法加载题解：${esc(e.message)}</div>`;
@@ -1271,10 +1312,10 @@ async function loadSol101() {
 }
 function renderSolutionSets() {
   const select = $('#solution-set');
-  select.innerHTML = '<option value="">全部题解集</option>' + solutionSets.map(s =>
+  select.innerHTML = solutionSets.map(s =>
     `<option value="${esc(s.name)}">${esc(s.title)} (${s.count})</option>`).join('');
+  select.value = solutionState.set;
   $('#solution-sets').innerHTML = [
-    {name: '', title: '全部题解', count: solutionSets.reduce((n, s) => n + (s.count || 0), 0), badge: 'ALL'},
     ...solutionSets,
   ].map(s => `
     <button class="solution-set ${solutionState.set === s.name ? 'active' : ''}" data-set="${esc(s.name)}">
@@ -1282,16 +1323,43 @@ function renderSolutionSets() {
     </button>`).join('');
   $('#solution-sets').querySelectorAll('button').forEach(b => b.onclick = () => {
     $('#solution-set').value = b.dataset.set;
-    searchSolutions($('#solution-q').value.trim(), b.dataset.set);
+    const q = $('#solution-q').value.trim();
+    if (q) searchSolutions(q, b.dataset.set);
+    else loadSolutionList(b.dataset.set);
   });
+}
+async function loadSolutionList(setName) {
+  if (!setName) return;
+  solutionState.q = '';
+  solutionState.set = setName;
+  solutionState.mode = 'list';
+  $('#solution-q').value = '';
+  renderSolutionSets();
+  $('#solution-results').innerHTML = '<div class="empty-state">加载题集目录中…</div>';
+  try {
+    const d = await api(`/api/solutions/list?set=${encodeURIComponent(setName)}`);
+    solutionState.results = d.items || [];
+    renderSolutionResults();
+    if (solutionState.results.length) {
+      await openSolution(solutionState.results[0].set, solutionState.results[0].path);
+    } else {
+      $('#solution-reader-empty').style.display = '';
+      $('#solution-reader-body').style.display = 'none';
+    }
+  } catch (e) {
+    $('#solution-results').innerHTML = `<div class="empty-state">目录加载失败：${esc(e.message)}</div>`;
+  }
 }
 async function searchSolutions(q, setName) {
   solutionState.q = q;
   solutionState.set = setName || '';
+  solutionState.mode = q ? 'search' : 'list';
+  if (!q && setName) return loadSolutionList(setName);
+  if (!q && !setName && solutionSets.length) return loadSolutionList(solutionSets[0].name);
   renderSolutionSets();
   $('#solution-results').innerHTML = '<div class="empty-state">检索中…</div>';
   try {
-    const d = await api(`/api/solutions/search?limit=40&q=${encodeURIComponent(q)}${setName ? `&set=${encodeURIComponent(setName)}` : ''}`);
+    const d = await api(`/api/solutions/search?limit=80&q=${encodeURIComponent(q)}${setName ? `&set=${encodeURIComponent(setName)}` : ''}`);
     solutionState.results = d.results || [];
     renderSolutionResults();
     if (solutionState.results.length) {
@@ -1306,23 +1374,40 @@ async function searchSolutions(q, setName) {
 }
 function renderSolutionResults() {
   const box = $('#solution-results');
-  const {q, results, active} = solutionState;
+  const {q, results, active, mode} = solutionState;
   if (!results.length) {
     box.innerHTML = '<div class="empty-state">没有匹配题解。试试题号、英文题名或更短关键词。</div>';
     return;
   }
-  box.innerHTML = results.map(r => {
+  const head = mode === 'search'
+    ? `搜索结果 · ${results.length} 条`
+    : `${solutionLabel(solutionState.set)} · ${results.length} 题`;
+  box.innerHTML = `<div class="solution-list-head"><strong>${esc(head)}</strong><span>${mode === 'search' ? '点击查看题解' : '按文件中题目顺序'}</span></div>` + results.map(r => {
     const key = `${r.set}/${r.path}`;
+    const problemNo = solutionProblemNo(r.path);
+    const cleanTitle = solutionCleanTitle(r.title, r.path);
     return `<button class="solution-item ${active === key ? 'active' : ''}" data-set="${esc(r.set)}" data-path="${esc(r.path)}">
-      <span class="solution-badge">${esc(r.badge || '')}</span>
+      <span class="solution-badge">${esc(problemNo)}</span>
       <span>
-        <span class="solution-item-title">${highlightText(r.title, q)}</span>
-        <span class="solution-item-meta">${esc(r.set_title)} · ${esc(r.meta || baseName(r.path))}</span>
-        <span class="solution-item-snippet">${highlightText(r.snippet || '', q)}</span>
+        <span class="solution-item-title">${highlightText(cleanTitle, q)}</span>
+        ${mode === 'search' ? `<span class="solution-item-snippet">${highlightText(r.snippet || '', q)}</span>` : ''}
       </span>
     </button>`;
   }).join('');
   box.querySelectorAll('button').forEach(b => b.onclick = () => openSolution(b.dataset.set, b.dataset.path));
+}
+function renderSolutionNav(d) {
+  const nav = $('#solution-nav');
+  const link = (item, label, cls) => item
+    ? `<button class="solution-nav-link ${cls}" data-set="${esc(item.set)}" data-path="${esc(item.path)}">
+        <span class="label">${label}</span><span class="title">${esc(item.title)}</span>
+      </button>`
+    : '<span></span>';
+  nav.innerHTML = [
+    link(d.prev, 'Previous page', 'prev'),
+    link(d.next, 'Next page', 'next'),
+  ].join('');
+  nav.querySelectorAll('button').forEach(b => b.onclick = () => openSolution(b.dataset.set, b.dataset.path));
 }
 async function openSolution(setName, path) {
   const key = `${setName}/${path}`;
@@ -1332,9 +1417,10 @@ async function openSolution(setName, path) {
   solutionState.content = d.content || '';
   $('#solution-reader-empty').style.display = 'none';
   $('#solution-reader-body').style.display = '';
-  $('#solution-title').textContent = d.title;
-  $('#solution-meta').textContent = `${d.set_title} / ${d.course || '未标课程'} / ${d.path}${d.meta ? ` · ${d.meta}` : ''}`;
-  $('#solution-content').innerHTML = mdLite(d.content || '');
+  $('#solution-meta').textContent = `${d.set_title} / ${d.path}${d.meta ? ` · ${d.meta}` : ''}`;
+  $('#solution-content').innerHTML = mdLite(stripFirstH1(d.content || ''));
+  addCodeCopyButtons($('#solution-content'));
+  renderSolutionNav(d);
   solutionState.active = key;
   renderSolutionResults();
 }
@@ -1342,15 +1428,13 @@ $('#solution-search').onclick = () => searchSolutions($('#solution-q').value.tri
 $('#solution-q').addEventListener('keydown', e => {
   if (e.key === 'Enter' && !e.isComposing) searchSolutions($('#solution-q').value.trim(), $('#solution-set').value);
 });
-$('#solution-set').onchange = () => searchSolutions($('#solution-q').value.trim(), $('#solution-set').value);
+$('#solution-set').onchange = () => {
+  const q = $('#solution-q').value.trim();
+  if (q) searchSolutions(q, $('#solution-set').value);
+  else loadSolutionList($('#solution-set').value);
+};
 $('#solution-copy').onclick = async () => {
-  try {
-    await navigator.clipboard.writeText(solutionState.content || '');
-    $('#solution-copy').textContent = '已复制';
-    setTimeout(() => { $('#solution-copy').textContent = '复制正文'; }, 1200);
-  } catch (e) {
-    alert('复制失败');
-  }
+  await copyText($('#solution-copy'), solutionState.content || '');
 };
 
 /* ---- mistakes ---- */
@@ -1459,6 +1543,8 @@ let adminData = null;
 let adminView = 'knowledge';
 let adminUsers = [];
 let adminUserRoleFilter = 'all';
+let adminLogPage = 1;
+let adminLogTotal = 0;
 async function loadAdmin() {
   if (!permissions.can_manage_courses && !permissions.can_view_student_logs) return;
   showAdminView(adminView);
@@ -1637,22 +1723,63 @@ async function loadAdminCourses() {
     await loadAdminCourses();
   });
 }
-async function loadAdminLogs() {
+async function loadAdminLogs(page = adminLogPage) {
   const user = $('#admin-log-user').value.trim();
   const action = $('#admin-log-action').value;
-  const qs = new URLSearchParams({limit: '200'});
+  const limit = Number($('#admin-log-limit').value || 20);
+  adminLogPage = Math.max(1, page);
+  const qs = new URLSearchParams({
+    limit: String(limit),
+    offset: String((adminLogPage - 1) * limit),
+  });
   if (user) qs.set('user', user);
   if (action) qs.set('action', action);
   const d = await api(`/api/admin/logs?${qs}`);
+  adminLogTotal = Number(d.total || 0);
+  const pages = Math.max(1, Math.ceil(adminLogTotal / limit));
+  if (adminLogPage > pages) {
+    adminLogPage = pages;
+    return loadAdminLogs(adminLogPage);
+  }
   const tbody = $('#admin-logs tbody');
   tbody.innerHTML = d.events.length ? d.events.map(e => `
     <tr><td class="muted">${esc(e.ts)}</td><td>${esc(e.user)}</td><td>${esc(e.role)}</td>
       <td>${esc(e.action)}</td><td style="word-break:break-all">${esc(JSON.stringify(e.detail))}</td></tr>`).join('')
     : '<tr><td colspan="5" class="muted">暂无日志</td></tr>';
+  $('#admin-logs-total').textContent = `共 ${adminLogTotal} 条记录`;
+  $('#admin-log-page').textContent = `第 ${adminLogPage} / ${pages} 页`;
+  $('#admin-log-prev').disabled = adminLogPage <= 1;
+  $('#admin-log-next').disabled = adminLogPage >= pages;
 }
-$('#admin-log-refresh').onclick = loadAdminLogs;
-$('#admin-log-user').addEventListener('keydown', e => { if (e.key === 'Enter') loadAdminLogs(); });
-$('#admin-log-action').onchange = loadAdminLogs;
+async function exportAdminLogs() {
+  const user = $('#admin-log-user').value.trim();
+  const action = $('#admin-log-action').value;
+  const qs = new URLSearchParams();
+  if (user) qs.set('user', user);
+  if (action) qs.set('action', action);
+  try {
+    const headers = authKey ? {Authorization: `Bearer ${authKey}`} : {};
+    const r = await fetch(`/api/admin/logs/export?${qs}`, {headers});
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${r.status}`);
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'behavior-logs.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { alert(e.message); }
+}
+const reloadAdminLogsFromFirstPage = () => loadAdminLogs(1);
+$('#admin-log-refresh').onclick = () => loadAdminLogs(adminLogPage);
+$('#admin-log-user').addEventListener('keydown', e => { if (e.key === 'Enter') reloadAdminLogsFromFirstPage(); });
+$('#admin-log-action').onchange = reloadAdminLogsFromFirstPage;
+$('#admin-log-limit').onchange = reloadAdminLogsFromFirstPage;
+$('#admin-log-prev').onclick = () => loadAdminLogs(adminLogPage - 1);
+$('#admin-log-next').onclick = () => loadAdminLogs(adminLogPage + 1);
+$('#admin-log-export').onclick = exportAdminLogs;
 $('#admin-refresh').onclick = loadAdmin;
 document.querySelectorAll('#admin-user-filter button').forEach(b => b.onclick = () => {
   adminUserRoleFilter = b.dataset.role || 'all';
