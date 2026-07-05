@@ -57,6 +57,7 @@
 - Removed external project references from README and expanded the MCP Server section with setup and usage examples for Claude Code.
 - Added Codex CLI-specific MCP setup instructions, including `codex mcp add`, verification commands, and a `PYTHONPATH` alternative.
 - Updated Codex MCP guidance to prefer the `PYTHONPATH` setup path when system Python has no `pip`.
+- Reworded project descriptions from "personal" wording to course-service wording for multi-user deployments.
 
 ### Verified
 - Confirmed `.env` is active through `/api/info`: `llm_configured` is `true`, model is `gpt-5.2`.
