@@ -54,6 +54,8 @@
 - Switched the live LLM model setting from unsupported `gpt-5.2` to `gpt-5.4` for the configured `surplustoken.com` endpoint.
 - Simplified the member-management name column so it shows only the display name, not the username/student ID twice.
 - Updated the student tutorial and README with online deployment usage, per-user keys, role-based management, behavior-log disclosure, knowledge-base browsing, and the native solution browser workflow.
+- Removed external project references from README and expanded the MCP Server section with setup and usage examples for Claude Code.
+- Added Codex CLI-specific MCP setup instructions, including `codex mcp add`, verification commands, and a `PYTHONPATH` alternative.
 
 ### Verified
 - Confirmed `.env` is active through `/api/info`: `llm_configured` is `true`, model is `gpt-5.2`.

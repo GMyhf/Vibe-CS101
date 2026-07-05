@@ -4,8 +4,8 @@
 [![Update index](https://github.com/GMyhf/Vibe-CS101/actions/workflows/update-index.yml/badge.svg)](https://github.com/GMyhf/Vibe-CS101/actions/workflows/update-index.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
-类似 [Vibe-Trading](https://github.com/GMyhf/Vibe-Trading) 的个人学习智能体：
-智能搜集任课老师的 **cs101（计算概论B）/ cs201（数据结构与算法B）** 课件与题解，
+面向 **cs101（计算概论B）/ cs201（数据结构与算法B）** 的个人学习智能体：
+智能搜集任课老师的课件与题解，
 建立本地全文索引，并通过带工具调用的 LLM 智能体回答问题——回答以老师的资料为根据并注明出处。
 
 ## 资料来源
@@ -91,12 +91,12 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 - **检索** `store.py`：BM25 排序（标题加权），snippet 高亮，course/source 过滤
 - **智能体** `agent.py` + `tools.py` + `llm.py`：OpenAI 兼容 chat/completions
   工具调用循环，最多 12 轮；最后一轮撤下工具强制给出文字回答
-- **错题本** `journal.py`：参照 Vibe-Trading Shadow Account 思路——从做题记录里
-  找出"你在哪里丢分"。间隔复习（1/3/7/14/30 天，全过 → 已掌握），按标签/课程
+- **错题本** `journal.py`：从做题记录里找出“你在哪里丢分”。间隔复习
+  （1/3/7/14/30 天，全过 → 已掌握），按标签/课程
   统计薄弱知识点。智能体可在对话中直接记错题、带你复习。单人模式存于
   `data/journal.db`；Web UI 多用户模式按 `data/journal-<user>.db` 隔离。
-- **Web UI** `server.py` + `web/`：架构参照 Vibe-Trading（后端 REST API + 单页
-  前端），但保持零依赖：标准库 ThreadingHTTPServer + 无构建的原生 JS 单页应用。
+- **Web UI** `server.py` + `web/`：后端 REST API + 单页前端，保持零依赖：
+  标准库 ThreadingHTTPServer + 无构建的原生 JS 单页应用。
   页面包括对话、检索、知识库、原生题解查询、错题本、学习进度和管理页。默认只监听
   127.0.0.1；绑定非本机地址时必须启用鉴权（环境变量 key 或 `user add` 创建的
   用户），并建议通过 `--tls-cert/--tls-key` 或反向代理启用 HTTPS。
@@ -130,13 +130,74 @@ key 保存在本机 `localStorage`，后续 API 请求使用 `Authorization: Bea
 
 ## MCP Server
 
-把检索工具暴露给 Claude Code 等 MCP 客户端（stdio 传输）：
+MCP Server 让 Claude Code 等 MCP 客户端直接调用本项目的课程资料检索工具。先保证
+`data/index.db` 已存在：
+
+```bash
+python3 -m vibe_cs101 quickstart
+# 或：python3 -m vibe_cs101 update && python3 -m vibe_cs101 index
+```
+
+### Codex CLI
+
+Codex 使用自己的 MCP 管理命令。推荐先把本仓库安装到当前 Python 环境：
+
+```bash
+cd /home/rocky/git/Vibe-CS101
+python3 -m pip install -e .
+codex mcp add vibe-cs101 -- python3 -m vibe_cs101.mcp_server
+```
+
+确认配置：
+
+```bash
+codex mcp list
+codex mcp get vibe-cs101
+```
+
+如果不想安装包，也可以显式设置 `PYTHONPATH`：
+
+```bash
+codex mcp add vibe-cs101 \
+  --env PYTHONPATH=/home/rocky/git/Vibe-CS101 \
+  -- python3 -m vibe_cs101.mcp_server
+```
+
+添加后重启 Codex 或开启新的 Codex 会话，再这样提问：
+
+```text
+请用 vibe-cs101 检索 cs101 资料，解释单调栈，并列出引用来源。
+```
+
+### Claude Code
+
+Claude Code 使用 `claude mcp add`。在仓库目录外也可添加，但推荐使用绝对路径，避免客户端从别的目录启动时找不到模块：
 
 ```bash
 claude mcp add vibe-cs101 -- python3 -m vibe_cs101.mcp_server
+# 或：
+claude mcp add vibe-cs101 -- /usr/bin/python3 -m vibe_cs101.mcp_server
 ```
 
-提供 `search_materials` / `read_section` / `list_sources` 三个工具。
+如果你没有把仓库安装到 Python 环境，先在仓库根目录执行一次：
+
+```bash
+python3 -m pip install -e .
+claude mcp add vibe-cs101 -- python3 -m vibe_cs101.mcp_server
+```
+
+添加后重启 Claude Code，问问题时明确要求它使用课程资料，例如：
+
+```text
+请用 vibe-cs101 检索 cs101 资料，解释“单调栈”，并列出引用来源。
+请先 list_sources，再 search_materials 查询“接雨水”，必要时 read_section 读取全文。
+```
+
+可用工具：
+
+- `list_sources`：列出当前索引中的课程和来源名。
+- `search_materials`：按关键词检索课件/题解，可传 `course`、`source`、`limit`。
+- `read_section`：按 `search_materials` 返回的 `section_id` 读取完整章节。
 
 ## 测试
 
@@ -150,6 +211,6 @@ python3 -m unittest discover -s tests        # 纯标准库，无需安装任何
 - [x] 定时自动 update + index（GitHub Actions 每周一重建，索引发布在
       [data-latest release](https://github.com/GMyhf/Vibe-CS101/releases/tag/data-latest)，
       下载 `index.db` 放到 `data/` 即可跳过 update/index 步骤）
-- [x] Web UI（参照 Vibe-Trading 后端 API + 单页前端架构，零依赖实现：`serve` 命令）
-- [x] 错题本 / 学习进度跟踪（参照 Vibe-Trading 的 Shadow Account 思路：`mistake` 命令 + 智能体工具 + Web 页面）
+- [x] Web UI（后端 API + 单页前端架构，零依赖实现：`serve` 命令）
+- [x] 错题本 / 学习进度跟踪（`mistake` 命令 + 智能体工具 + Web 页面）
 - [x] 多用户 / 远程部署基础能力（Bearer 鉴权、按用户隔离错题本和会话、可选 TLS）
