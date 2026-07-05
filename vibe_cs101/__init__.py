@@ -1,4 +1,4 @@
-"""Vibe-cs101: 课程计算机基础学习智能体.
+"""Vibe-cs101: 课程学习智能体.
 
 A course CS-fundamentals learning agent that collects course materials
 (cs101 计算概论B / cs201 数据结构与算法B) and problem solutions,

@@ -1,4 +1,4 @@
-# Vibe-cs101: 课程计算机基础学习智能体
+# Vibe-cs101: 课程学习智能体
 
 [![CI](https://github.com/GMyhf/Vibe-CS101/actions/workflows/ci.yml/badge.svg)](https://github.com/GMyhf/Vibe-CS101/actions/workflows/ci.yml)
 [![Update index](https://github.com/GMyhf/Vibe-CS101/actions/workflows/update-index.yml/badge.svg)](https://github.com/GMyhf/Vibe-CS101/actions/workflows/update-index.yml)

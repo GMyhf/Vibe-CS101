@@ -10,7 +10,7 @@ from .config import DB_PATH, LOCAL_SOURCES, REMOTE_SOURCES, load_llm_config
 
 BANNER = f"""\
 ┌─────────────────────────────────────────────┐
-│  Vibe-cs101 v{__version__} — 课程计算机基础学习智能体  │
+│  Vibe-cs101 v{__version__} — 课程学习智能体  │
 │  cs101 计算概论B · cs201 数据结构与算法B      │
 └─────────────────────────────────────────────┘"""
 
@@ -242,7 +242,7 @@ def cmd_serve(args: argparse.Namespace) -> int:
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(
         prog="vibe-cs101",
-        description="课程计算机基础学习智能体：检索并讲解 cs101/cs201 课件与题解。",
+        description="课程学习智能体：检索并讲解 cs101/cs201 课件与题解。",
     )
     parser.add_argument("--version", action="version", version=f"vibe-cs101 {__version__}")
     sub = parser.add_subparsers(dest="command", required=True)
