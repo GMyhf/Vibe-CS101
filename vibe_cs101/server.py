@@ -8,17 +8,30 @@ API:
     GET  /api/info                     配置与索引状态
     GET  /api/search?q=&course=&limit= 全文检索
     GET  /api/section/{id}             读取章节全文
+    GET  /api/document/{section_id}    读取命中 section 所在整篇文档
     POST /api/chat                     {message, session_id?} → {answer, events, session_id}
     GET  /api/sessions                 会话列表（持久化于 data/sessions.db）
     GET  /api/sessions/{id}            会话历史消息（前端可展示部分）
     DELETE /api/sessions/{id}          删除会话
     GET  /api/library                  知识库：原始课件/题解文件列表
     GET  /api/library/file?source=&path=[&download=1]   查看/下载原始文件
+    GET  /api/sol101                   题解查询工具入口配置
     GET  /api/mistakes?view=all|due    错题列表
-    POST /api/mistakes                 记错题 {problem, course?, tags?, reason?, note?, section_id?}
+    POST /api/mistakes                 记错题 {problem, course?, tags?, reason?, note?, link?, section_id?}
+    GET  /api/mistakes/{id}            读取错题详情
     POST /api/mistakes/{id}/review     {result: good|again}
     DELETE /api/mistakes/{id}          删除
     GET  /api/mistakes/stats           进度统计
+    GET  /api/admin/users              教师查看用户
+    GET  /api/admin/users/export       教师导出成员 CSV
+    POST /api/admin/users              教师添加用户 {name, role, key?}
+    POST /api/admin/users/import       教师批量导入学生 {text}
+    PATCH /api/admin/users/{name}      教师修改用户角色 {role}
+    POST /api/admin/users/{name}/reset 教师重置用户 key
+    DELETE /api/admin/users/{name}     教师删除用户
+    GET  /api/admin/courses            教师/助教查看课程资源配置
+    POST /api/admin/courses/{course}   教师/助教指定课件和题解 {resources}
+    GET  /api/admin/logs               教师/助教查看学生行为日志
 
 鉴权：VIBE_CS101_AUTH_KEY(S) 环境变量 + `vibe-cs101 user add` 管理的持久化用户（二者并存）。
 限流：VIBE_CS101_RATE_API / _RATE_CHAT（按用户）、_RATE_AUTHFAIL（按 IP），超限返回 429。
@@ -38,10 +51,19 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
-from . import journal, ratelimit, sessions, store, users
-from .config import DB_PATH, LOCAL_SOURCES, ORIGINAL_DIR, load_auth_keys, load_llm_config
+from . import audit, courses, journal, ratelimit, sessions, store, users
+from .config import (
+    DATA_DIR,
+    DB_PATH,
+    LOCAL_SOURCES,
+    ORIGINAL_DIR,
+    REMOTE_SOURCES,
+    load_auth_keys,
+    load_llm_config,
+)
 
 WEB_DIR = Path(__file__).resolve().parent / "web"
+SOL101_DIST_DIR = DATA_DIR / "sol101" / "docs" / ".vitepress" / "dist"
 MAX_BODY = 1 << 20  # 1MB
 MAX_SESSIONS = 50  # 内存中的活跃会话上限；被挤出的会话可随时从 sessions.db 恢复
 
@@ -63,8 +85,30 @@ def _library_roots() -> dict[str, tuple[str, Path]]:
     return roots
 
 
-def _library_files(root: Path) -> list[dict]:
+def _library_display_prefix(source_name: str, root: Path) -> str:
+    """Directory name shown in the left knowledge-base tree."""
+    if root.resolve() == ORIGINAL_DIR.resolve():
+        return ""
+    return source_name
+
+
+def _hidden_library_files(root: Path) -> set[str]:
+    if root.resolve() != ORIGINAL_DIR.resolve():
+        return set()
+    hidden = set()
+    for src in REMOTE_SOURCES:
+        if src.original_path.is_file() and src.legacy_original_path.is_file():
+            hidden.add(src.legacy_original_path.relative_to(ORIGINAL_DIR).as_posix())
+    return hidden
+
+
+def _library_files(
+    root: Path,
+    hidden: set[str] | None = None,
+    display_prefix: str = "",
+) -> list[dict]:
     root = root.resolve()
+    hidden = hidden or set()
     files = []
     for p in sorted(root.rglob("*")):
         if len(files) >= LIB_MAX_FILES:
@@ -78,7 +122,11 @@ def _library_files(root: Path) -> list[dict]:
         rel = p.relative_to(root)
         if any(part.startswith(".") for part in rel.parts):
             continue
-        files.append({"path": str(rel), "size": p.stat().st_size})
+        rel_path = rel.as_posix()
+        if rel_path in hidden:
+            continue
+        display_path = f"{display_prefix}/{rel_path}" if display_prefix else rel_path
+        files.append({"path": rel_path, "display_path": display_path, "size": p.stat().st_size})
     return files
 
 
@@ -110,6 +158,34 @@ _sessions_lock = threading.Lock()
 
 def _auth_enabled() -> bool:
     return bool(AUTH_KEYS) or users.has_users()
+
+
+def _role_of(user: str) -> str:
+    return users.role_of(user)
+
+
+def _can_manage_users(user: str) -> bool:
+    return _role_of(user) == "teacher"
+
+
+def _can_manage_courses(user: str) -> bool:
+    return _role_of(user) in {"teacher", "assistant"}
+
+
+def _can_view_student_logs(user: str) -> bool:
+    return _role_of(user) in {"teacher", "assistant"}
+
+
+def _public_user(user: str) -> dict:
+    info = users.get_user(user) or {"name": user, "role": users.DEFAULT_ROLE}
+    return {"name": info["name"], "role": info["role"]}
+
+
+def _log_action(user: str, action: str, detail: dict | None = None) -> None:
+    try:
+        audit.log(user, _role_of(user), action, detail)
+    except Exception:  # noqa: BLE001 - audit must not break user-facing flows
+        pass
 
 
 def _get_session(user: str, session_id: str | None) -> tuple[str, dict]:
@@ -259,10 +335,51 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
+    def _serve_sol101_static(self, path: str) -> None:
+        if path == "/sol101":
+            self.send_response(302)
+            self.send_header("Location", "/sol101/")
+            self.end_headers()
+            return
+        rel = path[len("/sol101/") :]
+        name = "index.html" if rel in ("", "/") else rel
+        file = (SOL101_DIST_DIR / name).resolve()
+        try:
+            file.relative_to(SOL101_DIST_DIR)
+        except ValueError:
+            self._error(404, "not found")
+            return
+        if not file.is_file():
+            fallback = (SOL101_DIST_DIR / "index.html").resolve()
+            if not fallback.is_file():
+                self._error(404, "sol101 site has not been built")
+                return
+            file = fallback
+        ctype = {
+            ".html": "text/html; charset=utf-8",
+            ".js": "text/javascript; charset=utf-8",
+            ".css": "text/css; charset=utf-8",
+            ".svg": "image/svg+xml",
+            ".png": "image/png",
+            ".jpg": "image/jpeg",
+            ".jpeg": "image/jpeg",
+            ".ico": "image/x-icon",
+            ".json": "application/json; charset=utf-8",
+        }.get(file.suffix, "application/octet-stream")
+        body = file.read_bytes()
+        self.send_response(200)
+        self.send_header("Content-Type", ctype)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
     # ---- routes --------------------------------------------------------
     def do_GET(self) -> None:  # noqa: N802
         url = urlparse(self.path)
         q = parse_qs(url.query)
+        if url.path == "/sol101" or url.path.startswith("/sol101/"):
+            self._serve_sol101_static(url.path)
+            return
         if not url.path.startswith("/api/"):
             self._serve_static(url.path)
             return
@@ -271,7 +388,17 @@ class Handler(BaseHTTPRequestHandler):
             return
         try:
             if url.path == "/api/me":
-                self._json({"user": user, "auth_enabled": _auth_enabled()})
+                me = _public_user(user)
+                self._json(
+                    {
+                        "user": me["name"],
+                        "role": me["role"],
+                        "auth_enabled": _auth_enabled(),
+                        "can_manage_users": _can_manage_users(user),
+                        "can_manage_courses": _can_manage_courses(user),
+                        "can_view_student_logs": _can_view_student_logs(user),
+                    }
+                )
             elif url.path == "/api/info":
                 cfg = load_llm_config()
                 self._json(
@@ -285,24 +412,69 @@ class Handler(BaseHTTPRequestHandler):
                     }
                 )
             elif url.path == "/api/search":
+                query = q.get("q", [""])[0]
+                course = q.get("course", [None])[0] or None
+                source = q.get("source", [None])[0] or None
+                enabled_sources = None if source else courses.enabled_resources(course)
                 hits = store.search(
-                    q.get("q", [""])[0],
+                    query,
                     limit=min(int(q.get("limit", ["10"])[0]), 50),
-                    course=q.get("course", [None])[0] or None,
-                    source=q.get("source", [None])[0] or None,
+                    course=course,
+                    source=source,
+                    sources=enabled_sources,
+                )
+                _log_action(
+                    user,
+                    "search",
+                    {"query": query, "course": course, "source": source, "results": len(hits)},
                 )
                 self._json({"results": [h.__dict__ for h in hits]})
             elif m := re.fullmatch(r"/api/section/(\d+)", url.path):
                 section = store.get_section(int(m.group(1)))
-                self._json(section) if section else self._error(404, "section not found")
+                if section:
+                    _log_action(
+                        user,
+                        "section_read",
+                        {
+                            "section_id": section["section_id"],
+                            "source": section["source"],
+                            "course": section["course"],
+                            "file": section["file"],
+                        },
+                    )
+                    self._json(section)
+                else:
+                    self._error(404, "section not found")
+            elif m := re.fullmatch(r"/api/document/(\d+)", url.path):
+                doc = store.get_document_for_section(int(m.group(1)))
+                if doc:
+                    _log_action(
+                        user,
+                        "document_read",
+                        {
+                            "section_id": doc["matched_section_id"],
+                            "source": doc["source"],
+                            "course": doc["course"],
+                            "file": doc["file"],
+                            "sections": doc["section_count"],
+                        },
+                    )
+                    self._json(doc)
+                else:
+                    self._error(404, "document not found")
             elif url.path == "/api/library":
+                _log_action(user, "library_list", {})
                 self._json(
                     {
                         "sources": [
                             {
                                 "name": name,
                                 "title": title,
-                                "files": _library_files(root),
+                                "files": _library_files(
+                                    root,
+                                    _hidden_library_files(root),
+                                    _library_display_prefix(name, root),
+                                ),
                             }
                             for name, (title, root) in _library_roots().items()
                         ]
@@ -315,6 +487,12 @@ class Handler(BaseHTTPRequestHandler):
                 if file is None:
                     self._error(404, "file not found")
                     return
+                download = bool(q.get("download", [""])[0])
+                _log_action(
+                    user,
+                    "library_download" if download else "library_view",
+                    {"source": source, "path": rel_path},
+                )
                 import mimetypes
 
                 ctype = mimetypes.guess_type(file.name)[0] or "application/octet-stream"
@@ -324,7 +502,7 @@ class Handler(BaseHTTPRequestHandler):
                 self.send_response(200)
                 self.send_header("Content-Type", ctype)
                 self.send_header("Content-Length", str(len(body)))
-                if q.get("download", [""])[0]:
+                if download:
                     from urllib.parse import quote
 
                     self.send_header(
@@ -333,6 +511,15 @@ class Handler(BaseHTTPRequestHandler):
                     )
                 self.end_headers()
                 self.wfile.write(body)
+            elif url.path == "/api/sol101":
+                _log_action(user, "sol101_view", {})
+                self._json(
+                    {
+                        "title": "题解查询",
+                        "site_url": "/sol101/",
+                        "repo_url": "https://github.com/FuYnAloft/sol101",
+                    }
+                )
             elif url.path == "/api/sessions":
                 self._json({"sessions": sessions.list_sessions(user)})
             elif m := re.fullmatch(r"/api/sessions/([A-Za-z0-9-]{1,64})", url.path):
@@ -344,6 +531,7 @@ class Handler(BaseHTTPRequestHandler):
                         {"session_id": m.group(1), "messages": sessions.display_messages(msgs)}
                     )
             elif url.path == "/api/mistakes/stats":
+                _log_action(user, "stats_view", {})
                 self._json(journal.stats(db_path=journal.user_db(user)))
             elif url.path == "/api/mistakes":
                 view = q.get("view", ["all"])[0]
@@ -353,7 +541,67 @@ class Handler(BaseHTTPRequestHandler):
                     tag=q.get("tag", [None])[0] or None,
                     db_path=journal.user_db(user),
                 )
+                _log_action(user, "mistakes_view", {"view": view, "count": len(mistakes)})
                 self._json({"mistakes": [m.to_dict() for m in mistakes]})
+            elif m := re.fullmatch(r"/api/mistakes/(\d+)", url.path):
+                mistake = journal.get_mistake(int(m.group(1)), db_path=journal.user_db(user))
+                if not mistake:
+                    self._error(404, "mistake not found")
+                    return
+                _log_action(user, "mistake_view", {"id": mistake.id})
+                self._json({"mistake": mistake.to_dict()})
+            elif url.path == "/api/admin/users":
+                if not _can_manage_users(user):
+                    self._error(403, "需要教师权限")
+                    return
+                self._json({"users": users.list_users()})
+            elif url.path == "/api/admin/users/export":
+                if not _can_manage_users(user):
+                    self._error(403, "需要教师权限")
+                    return
+                import csv
+                import io
+                from urllib.parse import quote
+
+                out = io.StringIO()
+                writer = csv.writer(out)
+                writer.writerow(["学号", "姓名", "院系", "权限", "加入时间", "最近使用", "用户名"])
+                for u in users.list_users():
+                    writer.writerow(
+                        [
+                            u["student_id"] or u["name"],
+                            u["display_name"] or u["name"],
+                            u["department"],
+                            u["role"],
+                            u["created"],
+                            u["last_seen"] or "",
+                            u["name"],
+                        ]
+                    )
+                body = out.getvalue().encode("utf-8-sig")
+                self.send_response(200)
+                self.send_header("Content-Type", "text/csv; charset=utf-8")
+                self.send_header("Content-Length", str(len(body)))
+                self.send_header(
+                    "Content-Disposition",
+                    f"attachment; filename*=UTF-8''{quote('members.csv')}",
+                )
+                self.end_headers()
+                self.wfile.write(body)
+            elif url.path == "/api/admin/courses":
+                if not _can_manage_courses(user):
+                    self._error(403, "需要教师或助教权限")
+                    return
+                self._json({"courses": courses.list_courses(), "resources": courses.known_resources()})
+            elif url.path == "/api/admin/logs":
+                if not _can_view_student_logs(user):
+                    self._error(403, "需要教师或助教权限")
+                    return
+                target = q.get("user", [None])[0] or None
+                action = q.get("action", [None])[0] or None
+                limit = int(q.get("limit", ["200"])[0])
+                events = audit.list_events(user=target, action=action, limit=limit)
+                self._json({"events": events})
             else:
                 self._error(404, "unknown endpoint")
         except Exception as exc:  # noqa: BLE001
@@ -386,6 +634,11 @@ class Handler(BaseHTTPRequestHandler):
                         self._json({"error": str(exc), "session_id": session_id}, 502)
                         return
                     sessions.save(user, session_id, agent.messages)
+                _log_action(
+                    user,
+                    "chat",
+                    {"session_id": session_id, "message": message[:500], "answer_chars": len(answer)},
+                )
                 self._json({"answer": answer, "events": events, "session_id": session_id})
             elif url.path == "/api/chat/stream":
                 data = self._body()
@@ -415,6 +668,15 @@ class Handler(BaseHTTPRequestHandler):
                         # 出错的轮次不落盘：消息尾部可能残留未完成的 tool_calls
                         if not saved:
                             sessions.save(user, session_id, agent.messages)
+                        _log_action(
+                            user,
+                            "chat",
+                            {
+                                "session_id": session_id,
+                                "message": message[:500],
+                                "stream": True,
+                            },
+                        )
             elif url.path == "/api/mistakes":
                 data = self._body()
                 m = journal.add_mistake(
@@ -423,8 +685,14 @@ class Handler(BaseHTTPRequestHandler):
                     tags=str(data.get("tags", "") or ""),
                     reason=str(data.get("reason", "") or ""),
                     note=str(data.get("note", "") or ""),
+                    link=str(data.get("link", "") or ""),
                     section_id=data.get("section_id"),
                     db_path=journal.user_db(user),
+                )
+                _log_action(
+                    user,
+                    "mistake_add",
+                    {"id": m.id, "problem": m.problem, "course": m.course, "tags": m.tags},
                 )
                 self._json({"mistake": m.to_dict()}, 201)
             elif m := re.fullmatch(r"/api/mistakes/(\d+)/review", url.path):
@@ -432,7 +700,74 @@ class Handler(BaseHTTPRequestHandler):
                 updated = journal.review_mistake(
                     int(m.group(1)), str(data.get("result", "good")), db_path=journal.user_db(user)
                 )
+                _log_action(
+                    user,
+                    "mistake_review",
+                    {"id": updated.id, "result": str(data.get("result", "good"))},
+                )
                 self._json({"mistake": updated.to_dict()})
+            elif url.path == "/api/admin/users":
+                if not _can_manage_users(user):
+                    self._error(403, "需要教师权限")
+                    return
+                data = self._body()
+                name = str(data.get("name", "")).strip()
+                role = str(data.get("role", "student")).strip() or "student"
+                key = data.get("key")
+                key = str(key).strip() if key else None
+                student_id = str(data.get("student_id", "") or "").strip()
+                display_name = str(data.get("display_name", "") or "").strip()
+                department = str(data.get("department", "") or "").strip()
+                new_key = users.add_user(
+                    name,
+                    key=key,
+                    role=role,
+                    student_id=student_id,
+                    display_name=display_name,
+                    department=department,
+                )
+                _log_action(
+                    user,
+                    "admin_user_add",
+                    {"name": name, "role": role, "student_id": student_id},
+                )
+                self._json({"user": users.get_user(name), "key": new_key}, 201)
+            elif url.path == "/api/admin/users/import":
+                if not _can_manage_users(user):
+                    self._error(403, "需要教师权限")
+                    return
+                data = self._body()
+                imported = users.import_students(str(data.get("text", "")))
+                _log_action(
+                    user,
+                    "admin_users_import",
+                    {"count": len(imported), "student_ids": [r["student_id"] for r in imported]},
+                )
+                self._json({"imported": imported}, 201)
+            elif m := re.fullmatch(r"/api/admin/users/([A-Za-z0-9_-]{1,32})", url.path):
+                self._error(405, "use PATCH")
+            elif m := re.fullmatch(r"/api/admin/users/([A-Za-z0-9_-]{1,32})/reset", url.path):
+                if not _can_manage_users(user):
+                    self._error(403, "需要教师权限")
+                    return
+                key = users.reset_key(m.group(1))
+                _log_action(user, "admin_user_reset", {"name": m.group(1)})
+                self._json({"user": users.get_user(m.group(1)), "key": key})
+            elif m := re.fullmatch(r"/api/admin/courses/([A-Za-z0-9_-]{1,32})", url.path):
+                if not _can_manage_courses(user):
+                    self._error(403, "需要教师或助教权限")
+                    return
+                data = self._body()
+                resources = data.get("resources", [])
+                if not isinstance(resources, list):
+                    raise ValueError("resources must be a list")
+                course = courses.set_course_resources(m.group(1), resources, user)
+                _log_action(
+                    user,
+                    "admin_course_update",
+                    {"course": course["course"], "resources": course["resources"]},
+                )
+                self._json({"course": course})
             else:
                 self._error(404, "unknown endpoint")
         except ValueError as exc:
@@ -447,14 +782,48 @@ class Handler(BaseHTTPRequestHandler):
             return
         if m := re.fullmatch(r"/api/mistakes/(\d+)", url.path):
             deleted = journal.delete_mistake(int(m.group(1)), db_path=journal.user_db(user))
+            if deleted:
+                _log_action(user, "mistake_delete", {"id": int(m.group(1))})
             self._json({"deleted": deleted}) if deleted else self._error(404, "not found")
         elif m := re.fullmatch(r"/api/sessions/([A-Za-z0-9-]{1,64})", url.path):
             deleted = sessions.delete(user, m.group(1))
             with _sessions_lock:
                 _sessions.pop((user, m.group(1)), None)
+            if deleted:
+                _log_action(user, "session_delete", {"session_id": m.group(1)})
+            self._json({"deleted": deleted}) if deleted else self._error(404, "not found")
+        elif m := re.fullmatch(r"/api/admin/users/([A-Za-z0-9_-]{1,32})", url.path):
+            if not _can_manage_users(user):
+                self._error(403, "需要教师权限")
+                return
+            deleted = users.remove_user(m.group(1))
+            if deleted:
+                _log_action(user, "admin_user_delete", {"name": m.group(1)})
             self._json({"deleted": deleted}) if deleted else self._error(404, "not found")
         else:
             self._error(404, "unknown endpoint")
+
+    def do_PATCH(self) -> None:  # noqa: N802
+        url = urlparse(self.path)
+        user = self._require_auth()
+        if user is None:
+            return
+        try:
+            if m := re.fullmatch(r"/api/admin/users/([A-Za-z0-9_-]{1,32})", url.path):
+                if not _can_manage_users(user):
+                    self._error(403, "需要教师权限")
+                    return
+                data = self._body()
+                role = str(data.get("role", "")).strip()
+                users.set_role(m.group(1), role)
+                _log_action(user, "admin_user_role", {"name": m.group(1), "role": role})
+                self._json({"user": users.get_user(m.group(1))})
+            else:
+                self._error(404, "unknown endpoint")
+        except ValueError as exc:
+            self._error(400, str(exc))
+        except Exception as exc:  # noqa: BLE001
+            self._error(500, str(exc))
 
 
 def serve(

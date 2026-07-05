@@ -13,6 +13,11 @@ from .tools import TOOL_SCHEMAS, run_tool
 
 MAX_ITERATIONS = 12
 MAX_READ_SECTION_CALLS = 3  # 默认值；可用 VIBE_CS101_MAX_READ_SECTIONS 调整
+STREAM_PLANNING_PROMPT = """\
+本次调用只用于判断是否需要继续调用工具，不要生成最终回答正文。
+如果已经有足够信息或不需要工具，请返回不带 tool_calls 的极短内容 READY。
+最终回答会由下一次无工具的流式调用生成。
+"""
 
 
 def _max_read_calls() -> int:
@@ -43,6 +48,10 @@ SYSTEM_PROMPT = """\
 2. 回答要以检索到的老师资料为根据，并注明出处（来源与章节标题）。资料没有覆盖时明确说明，再给出你自己的讲解。
 3. 讲解算法时给出思路、复杂度，代码优先用 Python（cs101/cs201 的主要语言）。
 4. 用中文回答（除非提问是英文）。
+5. 默认回答要紧凑：先给结论，再给 3-6 条要点；避免多级长列表和大段课程大纲。
+   如果用户只问泛泛问题，先用一两句话澄清或给简短概览；只有用户明确要求“详细”“完整路线”
+   “逐周内容”等，才展开长列表。
+6. 列表每项尽量一行；同类短项可用顿号或逗号合并，不要把每个关键词单独占一行。
 
 错题本（学习进度跟踪）：
 - 用户说做错了某题、某题不会时，主动提议用 record_mistake 记入错题本（标注知识点标签和错误原因，
@@ -117,14 +126,12 @@ class Agent:
         max_reads = _max_read_calls()
 
         for _ in range(MAX_ITERATIONS - 1):
-            msg = self.chat_fn(self.cfg, self.messages, tools=TOOL_SCHEMAS)
+            planning_messages = self.messages + [{"role": "system", "content": STREAM_PLANNING_PROMPT}]
+            msg = self.chat_fn(self.cfg, planning_messages, tools=TOOL_SCHEMAS)
             tool_calls = msg.get("tool_calls") or []
 
             if not tool_calls:
-                answer = msg.get("content") or "(模型返回了空回答)"
-                self.messages.append({"role": "assistant", "content": answer})
-                yield {"type": "chunk", "text": answer}
-                yield {"type": "done"}
+                yield from self._stream_final_answer()
                 return
 
             assistant_msg: dict = {"role": "assistant", "content": msg.get("content") or ""}
@@ -159,10 +166,20 @@ class Agent:
                 break
 
         final_messages = self.messages
+        yield from self._stream_final_answer(final_messages, "(达到最大工具调用轮数，未能完成回答)")
+
+    def _stream_final_answer(
+        self,
+        messages: list[dict] | None = None,
+        empty_answer: str = "(模型返回了空回答)",
+    ) -> Iterator[dict]:
+        """Stream the final answer and persist the assistant message."""
         chunks: list[str] = []
-        for chunk in self.stream_chat_fn(self.cfg, final_messages):
+        for chunk in self.stream_chat_fn(self.cfg, messages or self.messages):
             chunks.append(chunk)
             yield {"type": "chunk", "text": chunk}
-        answer = "".join(chunks) or "(达到最大工具调用轮数，未能完成回答)"
+        answer = "".join(chunks) or empty_answer
+        if not chunks:
+            yield {"type": "chunk", "text": answer}
         self.messages.append({"role": "assistant", "content": answer})
         yield {"type": "done"}

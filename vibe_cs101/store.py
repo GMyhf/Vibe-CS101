@@ -8,7 +8,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from .config import DB_PATH
-from .indexer import build_match_query, connect
+from .indexer import build_any_match_query, build_match_query, connect
 
 _UNSPACE_CJK = re.compile(r"(?<=[㐀-䶿一-鿿豈-﫿\[\]…]) +(?=[㐀-䶿一-鿿豈-﫿\[\]…])")
 
@@ -34,15 +34,17 @@ def search(
     limit: int = 8,
     course: str | None = None,
     source: str | None = None,
+    sources: list[str] | tuple[str, ...] | set[str] | None = None,
     db_path: Path = DB_PATH,
 ) -> list[Hit]:
     match = build_match_query(query)
     if not match:
         return []
+    fallback_match = build_any_match_query(query)
     conn = connect(db_path)
     sql = """
         SELECT s.id, s.source, s.course, s.kind, s.file, s.title,
-               snippet(sections_fts, 1, '[', ']', ' … ', 24)
+               snippet(sections_fts, 1, '', '', ' … ', 32)
         FROM sections_fts
         JOIN sections s ON s.id = sections_fts.rowid
         WHERE sections_fts MATCH ?
@@ -54,10 +56,21 @@ def search(
     if source:
         sql += " AND s.source = ?"
         args.append(source)
+    elif sources is not None:
+        clean_sources = [str(s).strip() for s in sources if str(s).strip()]
+        if not clean_sources:
+            conn.close()
+            return []
+        placeholders = ",".join("?" for _ in clean_sources)
+        sql += f" AND s.source IN ({placeholders})"
+        args.extend(clean_sources)
     sql += " ORDER BY bm25(sections_fts, 3.0, 1.0) LIMIT ?"
     args.append(limit)
     try:
         rows = conn.execute(sql, args).fetchall()
+        if not rows and fallback_match and fallback_match != match:
+            fallback_args = [fallback_match, *args[1:]]
+            rows = conn.execute(sql, fallback_args).fetchall()
     except sqlite3.OperationalError:
         rows = []
     finally:
@@ -82,6 +95,39 @@ def get_section(section_id: int, db_path: Path = DB_PATH) -> dict | None:
         "file": row[4],
         "title": row[5],
         "content": row[6],
+    }
+
+
+def get_document_for_section(section_id: int, db_path: Path = DB_PATH) -> dict | None:
+    """Return all indexed sections from the same source/course/file as one document."""
+    section = get_section(section_id, db_path)
+    if not section:
+        return None
+    conn = connect(db_path)
+    rows = conn.execute(
+        """
+        SELECT id, title, content
+        FROM sections
+        WHERE source = ? AND course = ? AND file = ?
+        ORDER BY id
+        """,
+        (section["source"], section["course"], section["file"]),
+    ).fetchall()
+    conn.close()
+    sections = [{"id": row[0], "title": row[1], "content": row[2]} for row in rows]
+    content = "\n\n".join(section["content"] for section in sections if section["content"])
+    return {
+        "section_id": section["section_id"],
+        "source": section["source"],
+        "course": section["course"],
+        "kind": section["kind"],
+        "file": section["file"],
+        "title": section["file"],
+        "matched_title": section["title"],
+        "matched_section_id": section["section_id"],
+        "section_count": len(rows),
+        "sections": sections,
+        "content": content,
     }
 
 

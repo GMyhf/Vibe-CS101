@@ -47,6 +47,11 @@ def _format_http_error(cfg: LLMConfig, code: int, body: str) -> str:
             "请运行 python3 -m vibe_cs101 info 确认当前生效的配置，"
             "并检查 vibe-cs101/.env 与 VIBE_CS101_* 环境变量是否指向预期端点。"
         )
+    if code == 524:
+        msg += (
+            "\n524 表示上游 LLM 网关超时，通常发生在模型开始返回内容之前。"
+            "本地服务仍可用；可重试、缩短问题/上下文，或切换更稳定的模型端点。"
+        )
     return msg
 
 

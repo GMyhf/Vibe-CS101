@@ -98,6 +98,14 @@ class LLMErrorFormattingTests(unittest.TestCase):
         self.assertIn("python3 -m vibe_cs101 info", message)
         self.assertIn("vibe-cs101/.env", message)
 
+    def test_524_error_mentions_upstream_timeout(self):
+        cfg = LLMConfig(base_url="https://proxy.example.com/v1", api_key="key", model="gpt-5.5")
+
+        message = _format_http_error(cfg, 524, "error code: 524")
+
+        self.assertIn("上游 LLM 网关超时", message)
+        self.assertIn("本地服务仍可用", message)
+
 
 if __name__ == "__main__":
     unittest.main()

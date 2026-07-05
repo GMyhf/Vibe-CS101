@@ -209,7 +209,7 @@ def cmd_user(args: argparse.Namespace) -> int:
     action = args.action
     try:
         if action == "add":
-            key = users.add_user(args.name, key=args.key)
+            key = users.add_user(args.name, key=args.key, role=args.role)
             print(f"✅ 用户 {args.name} 已创建。API key（仅显示这一次，请妥善保存）：")
             print(f"   {key}")
             print("无需重启 serve，立即生效。")
@@ -225,7 +225,7 @@ def cmd_user(args: argparse.Namespace) -> int:
                 print("（无持久化用户；环境变量 VIBE_CS101_AUTH_KEY(S) 配置的用户不在此列）")
             for u in rows:
                 seen = f"，最近使用 {u['last_seen']}" if u["last_seen"] else ""
-                print(f"  {u['name']}（创建于 {u['created']}{seen}）")
+                print(f"  {u['name']} [{u['role']}]（创建于 {u['created']}{seen}）")
     except ValueError as exc:
         print(f"❌ {exc}", file=sys.stderr)
         return 1
@@ -294,6 +294,7 @@ def main(argv: list[str] | None = None) -> int:
     usub = p.add_subparsers(dest="action", required=True)
     ua = usub.add_parser("add", help="创建用户并生成 API key")
     ua.add_argument("name", help="用户名（字母/数字/_/-，≤32 字符）")
+    ua.add_argument("--role", choices=["teacher", "assistant", "student"], default="student")
     ua.add_argument("--key", help="指定 key（默认自动生成随机 key）")
     usub.add_parser("list", help="列出持久化用户")
     ur = usub.add_parser("reset", help="重置某用户的 key")

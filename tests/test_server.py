@@ -7,7 +7,7 @@ from http.server import ThreadingHTTPServer
 from pathlib import Path
 from unittest.mock import patch
 
-from vibe_cs101 import journal, server, sessions, users
+from vibe_cs101 import audit, courses, journal, server, sessions, store, users
 from vibe_cs101.ratelimit import RateLimiter
 
 
@@ -20,10 +20,14 @@ class ServerTests(unittest.TestCase):
         cls._orig_data_dir = journal.DATA_DIR
         cls._orig_sessions_db = sessions.SESSIONS_DB
         cls._orig_users_db = users.USERS_DB
+        cls._orig_courses_db = courses.COURSES_DB
+        cls._orig_audit_db = audit.AUDIT_DB
         journal.JOURNAL_DB = Path(cls._tmp.name) / "journal.db"
         journal.DATA_DIR = Path(cls._tmp.name)
         sessions.SESSIONS_DB = Path(cls._tmp.name) / "sessions.db"
         users.USERS_DB = Path(cls._tmp.name) / "users.db"
+        courses.COURSES_DB = Path(cls._tmp.name) / "courses.db"
+        audit.AUDIT_DB = Path(cls._tmp.name) / "audit.db"
         cls.httpd = ThreadingHTTPServer(("127.0.0.1", 0), server.Handler)
         cls.port = cls.httpd.server_address[1]
         threading.Thread(target=cls.httpd.serve_forever, daemon=True).start()
@@ -36,6 +40,8 @@ class ServerTests(unittest.TestCase):
         journal.DATA_DIR = cls._orig_data_dir
         sessions.SESSIONS_DB = cls._orig_sessions_db
         users.USERS_DB = cls._orig_users_db
+        courses.COURSES_DB = cls._orig_courses_db
+        audit.AUDIT_DB = cls._orig_audit_db
         cls._tmp.cleanup()
 
     def setUp(self):
@@ -45,6 +51,8 @@ class ServerTests(unittest.TestCase):
         server.AUTH_FAIL_LIMITER = RateLimiter(0)
         sessions.SESSIONS_DB.unlink(missing_ok=True)
         users.USERS_DB.unlink(missing_ok=True)
+        courses.COURSES_DB.unlink(missing_ok=True)
+        audit.AUDIT_DB.unlink(missing_ok=True)
         with server._sessions_lock:
             server._sessions.clear()
 
@@ -80,17 +88,51 @@ class ServerTests(unittest.TestCase):
         status, data = self.request("/../pyproject.toml")
         self.assertEqual(status, 404)
 
+    def test_document_endpoint_returns_whole_file_for_section(self):
+        doc = {
+            "section_id": 1,
+            "matched_section_id": 1,
+            "source": "2025fall-cs101",
+            "course": "cs101",
+            "kind": "courseware",
+            "file": "dp.md",
+            "title": "dp.md",
+            "matched_title": "dp > 动态规划",
+            "section_count": 2,
+            "sections": [{"id": 1, "title": "dp > 动态规划", "content": "# DP\n\n动态规划正文"}],
+            "content": "# DP\n\n动态规划正文",
+        }
+        with patch("vibe_cs101.server.store.get_document_for_section", return_value=doc):
+            status, data = self.request("/api/document/1")
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["matched_section_id"], 1)
+        self.assertEqual(data["sections"][0]["id"], 1)
+        self.assertEqual(data["content"], "# DP\n\n动态规划正文")
+        self.assertEqual(data["section_count"], 2)
+
     def test_mistake_crud_and_review_flow(self):
         status, data = self.request(
             "/api/mistakes", "POST",
-            {"problem": "LeetCode 42 接雨水", "course": "cs101", "tags": "单调栈", "reason": "边界写错"},
+            {
+                "problem": "LeetCode 42 接雨水",
+                "course": "cs101",
+                "tags": "单调栈",
+                "reason": "边界写错",
+                "link": "https://leetcode.cn/problems/trapping-rain-water/",
+            },
         )
         self.assertEqual(status, 201)
         mid = data["mistake"]["id"]
+        self.assertEqual(data["mistake"]["link"], "https://leetcode.cn/problems/trapping-rain-water/")
 
         status, data = self.request("/api/mistakes?view=all")
         self.assertEqual(status, 200)
         self.assertTrue(any(m["id"] == mid for m in data["mistakes"]))
+
+        status, data = self.request(f"/api/mistakes/{mid}")
+        self.assertEqual(status, 200)
+        self.assertEqual(data["mistake"]["link"], "https://leetcode.cn/problems/trapping-rain-water/")
 
         status, data = self.request(f"/api/mistakes/{mid}/review", "POST", {"result": "good"})
         self.assertEqual(status, 200)
@@ -245,13 +287,122 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(self.request("/api/me")[0], 429)
 
     def test_db_users_can_authenticate(self):
-        key = users.add_user("carol")
+        key = users.add_user("carol", role="student")
         status, data = self.request("/api/me")  # 有 DB 用户 → 鉴权已启用
         self.assertEqual(status, 401)
         status, data = self.request("/api/me", key=key)
         self.assertEqual(status, 200)
         self.assertEqual(data["user"], "carol")
+        self.assertEqual(data["role"], "student")
         self.assertTrue(data["auth_enabled"])
+
+    def test_teacher_can_add_users_and_change_roles(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        status, data = self.request(
+            "/api/admin/users", "POST",
+            {"name": "student1", "role": "student", "display_name": "学生一", "department": "信息学院"},
+            key=teacher_key,
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(data["user"]["role"], "student")
+        self.assertEqual(data["user"]["display_name"], "学生一")
+        self.assertIn("key", data)
+
+        status, data = self.request(
+            "/api/admin/users/student1", "PATCH", {"role": "assistant"}, key=teacher_key
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["user"]["role"], "assistant")
+
+        status, data = self.request("/api/admin/users/student1/reset", "POST", {}, key=teacher_key)
+        self.assertEqual(status, 200)
+        self.assertIn("key", data)
+
+        status, data = self.request("/api/admin/users/student1", "DELETE", key=teacher_key)
+        self.assertEqual(status, 200)
+        self.assertTrue(data["deleted"])
+
+    def test_teacher_can_batch_import_students(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        status, data = self.request(
+            "/api/admin/users/import", "POST",
+            {"text": "2100012865 郭彦君 信息科学技术学院\n2200011313,李昱麒,物理学院"},
+            key=teacher_key,
+        )
+        self.assertEqual(status, 201)
+        self.assertEqual(len(data["imported"]), 2)
+        status, data = self.request("/api/admin/users", key=teacher_key)
+        self.assertEqual(data["users"][0]["student_id"], "2100012865")
+        self.assertEqual(data["users"][0]["display_name"], "郭彦君")
+
+        req = urllib.request.Request(
+            f"http://127.0.0.1:{self.port}/api/admin/users/export",
+            headers={"Authorization": f"Bearer {teacher_key}"},
+        )
+        with urllib.request.urlopen(req) as resp:
+            csv_text = resp.read().decode("utf-8-sig")
+        self.assertIn("学号,姓名,院系", csv_text)
+        self.assertIn("2100012865,郭彦君,信息科学技术学院", csv_text)
+
+    def test_student_cannot_use_admin_endpoints(self):
+        student_key = users.add_user("student", role="student")
+        status, data = self.request("/api/admin/users", key=student_key)
+        self.assertEqual(status, 403)
+        status, data = self.request("/api/admin/courses", key=student_key)
+        self.assertEqual(status, 403)
+        status, data = self.request("/api/admin/logs", key=student_key)
+        self.assertEqual(status, 403)
+
+    def test_assistant_can_manage_courses_and_view_logs_not_users(self):
+        assistant_key = users.add_user("ta", role="assistant")
+        status, data = self.request("/api/admin/users", key=assistant_key)
+        self.assertEqual(status, 403)
+
+        status, data = self.request("/api/admin/courses", key=assistant_key)
+        self.assertEqual(status, 200)
+        first = data["resources"][0]["name"]
+        course = data["resources"][0]["course"]
+        status, data = self.request(
+            f"/api/admin/courses/{course}", "POST", {"resources": [first]}, key=assistant_key
+        )
+        self.assertEqual(status, 200)
+        self.assertEqual(data["course"]["resources"], [first])
+
+        status, data = self.request("/api/admin/logs", key=assistant_key)
+        self.assertEqual(status, 200)
+        self.assertIn("events", data)
+
+    def test_search_uses_enabled_course_resources(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        courses.set_course_resources("cs101", ["openjudge"], "teacher")
+        hit = store.Hit(1, "openjudge", "cs101", "solutions", "x.md", "title", "snippet")
+        with patch("vibe_cs101.server.store.search", return_value=[hit]) as search:
+            status, data = self.request("/api/search?q=dp&course=cs101", key=teacher_key)
+
+        self.assertEqual(status, 200)
+        self.assertEqual(data["results"][0]["source"], "openjudge")
+        self.assertEqual(search.call_args.kwargs["sources"], ["openjudge"])
+
+    def test_explicit_search_source_bypasses_enabled_course_resources(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        courses.set_course_resources("cs101", ["openjudge"], "teacher")
+        with patch("vibe_cs101.server.store.search", return_value=[]) as search:
+            status, _ = self.request("/api/search?q=dp&course=cs101&source=leetcode", key=teacher_key)
+
+        self.assertEqual(status, 200)
+        self.assertIsNone(search.call_args.kwargs["sources"])
+
+    def test_audit_logs_student_activity_for_staff(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        student_key = users.add_user("student", role="student")
+        self.request("/api/search?q=dp", key=student_key)
+        self.request("/api/mistakes?view=all", key=student_key)
+
+        status, data = self.request("/api/admin/logs?user=student", key=teacher_key)
+        self.assertEqual(status, 200)
+        actions = [e["action"] for e in data["events"]]
+        self.assertIn("search", actions)
+        self.assertIn("mistakes_view", actions)
 
     def test_auth_failures_are_rate_limited(self):
         server.AUTH_KEYS = {"alice": "alice-key"}
@@ -266,8 +417,9 @@ class ServerTests(unittest.TestCase):
         # SSE 流结束后必须关闭连接，否则前端 fetch 永远等不到 EOF（发送按钮卡死）
         session_id, sess = server._get_session("owner", None)
         sess["agent"].chat_fn = lambda cfg, messages, tools=None, temperature=0.3: {
-            "content": "答案", "tool_calls": None,
+            "content": "READY", "tool_calls": None,
         }
+        sess["agent"].stream_chat_fn = lambda cfg, messages, temperature=0.3: iter(["答", "案"])
         req = urllib.request.Request(
             f"http://127.0.0.1:{self.port}/api/chat/stream",
             method="POST",
@@ -277,6 +429,7 @@ class ServerTests(unittest.TestCase):
         with urllib.request.urlopen(req, timeout=5) as resp:  # 未关连接会超时
             body = resp.read().decode()
         self.assertIn('"type": "done"', body.replace('"type":"done"', '"type": "done"'))
+        self.assertIn('"text": "答"', body.replace('"text":"答"', '"text": "答"'))
 
     def _lib_root(self):
         root = Path(self._tmp.name) / "lib"
@@ -296,6 +449,10 @@ class ServerTests(unittest.TestCase):
             self.assertEqual(
                 [f["path"] for f in data["sources"][0]["files"]], ["a.md", "sub/b.py"]
             )
+            self.assertEqual(
+                [f["display_path"] for f in data["sources"][0]["files"]],
+                ["course/a.md", "course/sub/b.py"],
+            )
 
             req = urllib.request.Request(
                 f"http://127.0.0.1:{self.port}/api/library/file?source=course&path=a.md&download=1"
@@ -303,6 +460,17 @@ class ServerTests(unittest.TestCase):
             with urllib.request.urlopen(req) as resp:
                 self.assertEqual(resp.read().decode(), "# hello")
                 self.assertIn("attachment", resp.headers.get("Content-Disposition", ""))
+
+    def test_library_hides_legacy_remote_duplicate(self):
+        root = Path(self._tmp.name) / "original"
+        structured = root / "2024fall-cs101" / "2024fall_LeetCode_problems.md"
+        legacy = root / "leetcode.md"
+        structured.parent.mkdir(parents=True, exist_ok=True)
+        structured.write_text("# structured", encoding="utf-8")
+        legacy.write_text("# legacy", encoding="utf-8")
+        with patch("vibe_cs101.config.ORIGINAL_DIR", root), patch("vibe_cs101.server.ORIGINAL_DIR", root):
+            files = server._library_files(root, server._hidden_library_files(root))
+        self.assertEqual([f["path"] for f in files], ["2024fall-cs101/2024fall_LeetCode_problems.md"])
 
     def test_library_blocks_traversal_and_unknown(self):
         root = self._lib_root()
@@ -312,6 +480,33 @@ class ServerTests(unittest.TestCase):
                 self.assertEqual(status, 404, path)
             status, _ = self.request("/api/library/file?source=nope&path=a.md")
             self.assertEqual(status, 404)
+
+    def test_sol101_endpoint_returns_links_and_logs(self):
+        teacher_key = users.add_user("teacher", role="teacher")
+        student_key = users.add_user("student", role="student")
+
+        status, data = self.request("/api/sol101", key=student_key)
+        self.assertEqual(status, 200)
+        self.assertEqual(data["site_url"], "/sol101/")
+        self.assertEqual(data["repo_url"], "https://github.com/FuYnAloft/sol101")
+
+        status, logs = self.request("/api/admin/logs?action=sol101_view", key=teacher_key)
+        self.assertEqual(status, 200)
+        self.assertTrue(any(e["action"] == "sol101_view" for e in logs["events"]))
+
+    def test_sol101_static_route_serves_built_site(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            dist = Path(tmp)
+            (dist / "index.html").write_text("sol101 home", encoding="utf-8")
+            (dist / "assets").mkdir()
+            (dist / "assets" / "app.js").write_text("console.log('ok')", encoding="utf-8")
+            with patch("vibe_cs101.server.SOL101_DIST_DIR", dist):
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/sol101/") as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertIn("sol101 home", resp.read().decode())
+                with urllib.request.urlopen(f"http://127.0.0.1:{self.port}/sol101/assets/app.js") as resp:
+                    self.assertEqual(resp.status, 200)
+                    self.assertIn("text/javascript", resp.headers.get("Content-Type", ""))
 
     def test_remote_serve_requires_auth_key(self):
         with patch("vibe_cs101.server.load_auth_keys", return_value={}):

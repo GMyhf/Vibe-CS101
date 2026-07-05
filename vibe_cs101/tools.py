@@ -5,7 +5,7 @@ from __future__ import annotations
 import json
 import os
 
-from . import store
+from . import courses, store
 from .config import LOCAL_SOURCES, REMOTE_SOURCES
 
 MAX_SECTION_CHARS = 6000  # 默认值；可用 VIBE_CS101_MAX_SECTION_CHARS 调整
@@ -78,6 +78,7 @@ TOOL_SCHEMAS = [
                     "tags": {"type": "string", "description": "知识点标签，逗号分隔，如“dp,单调栈”"},
                     "reason": {"type": "string", "description": "错误原因（思路错/边界条件/超时/语法等）"},
                     "note": {"type": "string", "description": "正确思路要点"},
+                    "link": {"type": "string", "description": "原题链接（可选），如 OpenJudge / LeetCode URL"},
                     "section_id": {"type": "integer", "description": "关联题解章节 id（可选，来自 search_materials）"},
                 },
                 "required": ["problem"],
@@ -123,11 +124,15 @@ TOOL_SCHEMAS = [
 
 
 def _tool_search(args: dict, context: dict) -> str:
+    course = args.get("course") or None
+    source = args.get("source") or None
+    enabled_sources = None if source else courses.enabled_resources(course)
     hits = store.search(
         query=str(args.get("query", "")),
         limit=int(args.get("limit", 8) or 8),
-        course=args.get("course") or None,
-        source=args.get("source") or None,
+        course=course,
+        source=source,
+        sources=enabled_sources,
     )
     if not hits:
         return json.dumps({"results": [], "hint": "无匹配，试试更短或不同的关键词"}, ensure_ascii=False)
@@ -191,6 +196,7 @@ def _tool_record_mistake(args: dict, context: dict) -> str:
         tags=args.get("tags") or "",
         reason=args.get("reason") or "",
         note=args.get("note") or "",
+        link=args.get("link") or "",
         section_id=args.get("section_id"),
         db_path=context.get("journal_db"),
     )

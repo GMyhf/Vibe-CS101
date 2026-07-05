@@ -65,6 +65,32 @@ class UsersTests(unittest.TestCase):
         users.verify_key(key, db_path=self.db)
         self.assertIsNotNone(users.list_users(db_path=self.db)[0]["last_seen"])
 
+    def test_roles_default_and_update(self):
+        users.add_user("alice", db_path=self.db)
+        users.add_user("bob", role="student", db_path=self.db)
+        self.assertEqual(users.role_of("alice", db_path=self.db), "teacher")
+        self.assertEqual(users.role_of("bob", db_path=self.db), "student")
+        users.set_role("bob", "assistant", db_path=self.db)
+        self.assertEqual(users.get_user("bob", db_path=self.db)["role"], "assistant")
+        with self.assertRaises(ValueError):
+            users.add_user("badrole", role="admin", db_path=self.db)
+
+    def test_profile_fields_and_batch_import(self):
+        imported = users.import_students(
+            "2100012865 郭彦君 信息科学技术学院\n2200011313,李昱麒,物理学院",
+            db_path=self.db,
+        )
+        self.assertEqual(len(imported), 2)
+        rows = users.list_users(db_path=self.db)
+        self.assertEqual(rows[0]["student_id"], "2100012865")
+        self.assertEqual(rows[0]["display_name"], "郭彦君")
+        self.assertEqual(rows[0]["department"], "信息科学技术学院")
+        self.assertEqual(users.verify_key(imported[0]["key"], db_path=self.db), "2100012865")
+
+    def test_batch_import_rejects_bad_rows(self):
+        with self.assertRaises(ValueError):
+            users.import_students("2100012865 只有两列", db_path=self.db)
+
 
 if __name__ == "__main__":
     unittest.main()

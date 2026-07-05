@@ -98,6 +98,27 @@ class AgentLoopTests(unittest.TestCase):
         self.assertEqual(len(tool_msgs), 4)
         self.assertNotIn("本轮最多读取", tool_msgs[-1]["content"])
 
+    def test_stream_plain_answer_uses_stream_chat(self):
+        agent, calls = make_agent([{"content": "READY", "tool_calls": None}])
+        stream_calls = []
+
+        def fake_stream(cfg, messages, temperature=0.3):
+            stream_calls.append([dict(m) for m in messages])
+            yield "流式"
+            yield "答案"
+
+        agent.stream_chat_fn = fake_stream
+
+        events = list(agent.stream("你好"))
+
+        self.assertEqual([e["text"] for e in events if e["type"] == "chunk"], ["流式", "答案"])
+        self.assertEqual(events[-1]["type"], "done")
+        self.assertEqual(agent.messages[-1], {"role": "assistant", "content": "流式答案"})
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(len(stream_calls), 1)
+        self.assertEqual(calls[0]["messages"][-1]["content"].splitlines()[0], "本次调用只用于判断是否需要继续调用工具，不要生成最终回答正文。")
+        self.assertEqual(stream_calls[0][-1], {"role": "user", "content": "你好"})
+
 
 if __name__ == "__main__":
     unittest.main()

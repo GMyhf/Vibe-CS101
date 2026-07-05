@@ -73,7 +73,7 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
 ## 工作原理
 
 ```
-上游 GitHub 题解 ──update──▶ data/original/*.md ─┐
+上游 GitHub 题解 ──update──▶ data/original/<github-repo>/*.md ─┐
                                                   ├─index──▶ data/index.db (SQLite FTS5)
 本地课件仓库 (../2025fall-cs101, ../2026spring-cs201) ─┘              │
                                                                       ▼
@@ -83,7 +83,8 @@ python3 -m vibe_cs101 mistake stats     # 薄弱知识点分析
           以老师资料为根据、注明出处的回答
 ```
 
-- **抓取** `fetch.py`：带 ETag 的条件请求，失败时保留本地副本
+- **抓取** `fetch.py`：带 ETag 的条件请求，按 GitHub 仓库目录保存原文，
+  失败时保留本地副本
 - **索引** `indexer.py`：按标题层级把长 Markdown 切分成章节；对 CJK 字符做逐字
   分词预处理，使 FTS5 unicode61 支持中文检索（无需外部分词库）
 - **检索** `store.py`：BM25 排序（标题加权），snippet 高亮，course/source 过滤

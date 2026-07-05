@@ -14,6 +14,8 @@ class SearchTests(unittest.TestCase):
         rows = [
             ("2025fall-cs101", "cs101", "courseware", "dp.md", "dp > 动态规划入门",
              "动态规划是一种精妙的算法思想，先接触经典模型。"),
+            ("2025fall-cs101", "cs101", "courseware", "dp.md", "dp > 状态转移",
+             "状态设计和转移方程是动态规划的核心。"),
             ("openjudge", "cs101", "solutions", "openjudge.md", "OJ > 02533 Fibonacci",
              "递推求斐波那契数列，注意 dp 数组初始化。"),
             ("2026spring-cs201", "cs201", "courseware", "graph.md", "graph > Dijkstra",
@@ -36,9 +38,11 @@ class SearchTests(unittest.TestCase):
 
     def test_chinese_search(self):
         hits = store.search("动态规划", db_path=self.db)
-        self.assertEqual(len(hits), 1)
-        self.assertEqual(hits[0].title, "dp > 动态规划入门")
-        self.assertIn("动态规划", hits[0].snippet.replace(" ", ""))
+        self.assertEqual(len(hits), 2)
+        self.assertIn("dp > 动态规划入门", [h.title for h in hits])
+        self.assertTrue(any("动态规划" in h.snippet.replace(" ", "") for h in hits))
+        self.assertNotIn("[", hits[0].snippet)
+        self.assertNotIn("]", hits[0].snippet)
 
     def test_english_search(self):
         hits = store.search("dijkstra priority queue", db_path=self.db)
@@ -47,8 +51,19 @@ class SearchTests(unittest.TestCase):
 
     def test_course_filter(self):
         self.assertEqual(store.search("dp", course="cs201", db_path=self.db), [])
-        # both cs101 rows mention "dp" (title of one, content of the other)
-        self.assertEqual(len(store.search("dp", course="cs101", db_path=self.db)), 2)
+        # all cs101 rows either mention "dp" in title/content or source metadata
+        self.assertEqual(len(store.search("dp", course="cs101", db_path=self.db)), 3)
+
+    def test_source_allowlist_filter(self):
+        hits = store.search("dp", course="cs101", sources=["openjudge"], db_path=self.db)
+        self.assertEqual(len(hits), 1)
+        self.assertEqual(hits[0].source, "openjudge")
+        self.assertEqual(store.search("dp", course="cs101", sources=[], db_path=self.db), [])
+
+    def test_broad_query_falls_back_to_any_term(self):
+        hits = store.search("动态规划 不存在的学习路线词", course="cs101", db_path=self.db)
+        self.assertEqual(len(hits), 2)
+        self.assertIn("dp > 动态规划入门", [h.title for h in hits])
 
     def test_fts_syntax_injection_is_safe(self):
         self.assertEqual(store.search('") OR (1', db_path=self.db), [])
@@ -59,6 +74,17 @@ class SearchTests(unittest.TestCase):
         section = store.get_section(hit.section_id, db_path=self.db)
         self.assertIsNotNone(section)
         self.assertIn("精妙", section["content"])
+
+    def test_get_document_for_section_combines_same_file(self):
+        hit = store.search("状态转移", db_path=self.db)[0]
+        doc = store.get_document_for_section(hit.section_id, db_path=self.db)
+
+        self.assertIsNotNone(doc)
+        self.assertEqual(doc["file"], "dp.md")
+        self.assertEqual(doc["section_count"], 2)
+        self.assertEqual([s["id"] for s in doc["sections"]], [1, 2])
+        self.assertIn("动态规划是一种精妙", doc["content"])
+        self.assertIn("状态设计和转移方程", doc["content"])
 
     def test_empty_query(self):
         self.assertEqual(store.search("", db_path=self.db), [])

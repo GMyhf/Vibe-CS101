@@ -15,12 +15,20 @@ class ToolContextTests(unittest.TestCase):
             result = json.loads(
                 run_tool(
                     "record_mistake",
-                    json.dumps({"problem": "OpenJudge 26977", "course": "cs101", "tags": "单调栈"}),
+                    json.dumps(
+                        {
+                            "problem": "OpenJudge 26977",
+                            "course": "cs101",
+                            "tags": "单调栈",
+                            "link": "http://cs101.openjudge.cn/practice/26977/",
+                        }
+                    ),
                     {"journal_db": db},
                 )
             )
 
             self.assertEqual(result["recorded"]["problem"], "OpenJudge 26977")
+            self.assertEqual(result["recorded"]["link"], "http://cs101.openjudge.cn/practice/26977/")
             self.assertEqual(len(journal.list_mistakes(db_path=db)), 1)
 
     def test_review_mistakes_uses_context_journal_db(self):

@@ -25,6 +25,46 @@ class JournalTests(unittest.TestCase):
         self.assertEqual(m.next_review, (date.today() + timedelta(days=1)).isoformat())
         self.assertEqual(m.status, "active")
 
+    def test_add_stores_link(self):
+        m = self.add(link="http://cs101.openjudge.cn/practice/02733/")
+        self.assertEqual(m.link, "http://cs101.openjudge.cn/practice/02733/")
+        loaded = journal.get_mistake(m.id, db_path=self.db)
+        self.assertIsNotNone(loaded)
+        self.assertEqual(loaded.link, m.link)
+
+    def test_add_infers_openjudge_link_and_normalizes_tags(self):
+        m = self.add(problem="OpenJudge E02733 判断闰年", tags="条件判断、取模，闰年规则 OpenJudge Easy")
+
+        self.assertEqual(m.link, "http://cs101.openjudge.cn/practice/02733/")
+        self.assertEqual(m.tags, "条件判断,取模,闰年规则,OpenJudge,Easy")
+
+    def test_existing_db_migrates_link_column(self):
+        conn = journal._connect(self.db)
+        conn.execute("ALTER TABLE mistakes RENAME TO mistakes_old")
+        conn.execute(
+            """
+            CREATE TABLE mistakes (
+                id INTEGER PRIMARY KEY,
+                created TEXT NOT NULL,
+                problem TEXT NOT NULL,
+                course TEXT NOT NULL DEFAULT '',
+                tags TEXT NOT NULL DEFAULT '',
+                reason TEXT NOT NULL DEFAULT '',
+                note TEXT NOT NULL DEFAULT '',
+                section_id INTEGER,
+                status TEXT NOT NULL DEFAULT 'active',
+                interval_idx INTEGER NOT NULL DEFAULT 0,
+                next_review TEXT NOT NULL,
+                review_count INTEGER NOT NULL DEFAULT 0
+            )
+            """
+        )
+        conn.close()
+
+        m = self.add()
+
+        self.assertEqual(m.link, "http://cs101.openjudge.cn/practice/26977/")
+
     def test_add_rejects_empty_problem(self):
         with self.assertRaises(ValueError):
             journal.add_mistake("   ", db_path=self.db)

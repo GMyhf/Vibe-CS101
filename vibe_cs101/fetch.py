@@ -6,7 +6,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 
-from .config import ETAG_DIR, ORIGINAL_DIR, REMOTE_SOURCES, RemoteSource
+from .config import ETAG_DIR, REMOTE_SOURCES, RemoteSource
 
 USER_AGENT = "vibe-cs101/0.1 (+https://github.com/GMyhf)"
 TIMEOUT_S = 30
@@ -44,14 +44,18 @@ def _fetch(url: str, etag: str | None) -> tuple[int, bytes, str]:
 
 def fetch_source(source: RemoteSource) -> FetchResult:
     """Fetch one source; keep the previously downloaded copy on failure."""
-    ORIGINAL_DIR.mkdir(parents=True, exist_ok=True)
+    target = source.original_path
+    legacy_target = source.legacy_original_path
+    target.parent.mkdir(parents=True, exist_ok=True)
     ETAG_DIR.mkdir(parents=True, exist_ok=True)
-    target = ORIGINAL_DIR / f"{source.name}.md"
+    if legacy_target.is_file() and not target.is_file():
+        target.write_bytes(legacy_target.read_bytes())
     etag_file = ETAG_DIR / f"{source.name}.etag"
     old_etag = etag_file.read_text().strip() if etag_file.is_file() else None
+    has_cached_copy = target.is_file() or legacy_target.is_file()
 
     try:
-        status, body, etag = _fetch(source.url, old_etag if target.is_file() else None)
+        status, body, etag = _fetch(source.url, old_etag if has_cached_copy else None)
     except Exception as exc:  # noqa: BLE001 - network errors of any shape
         # raw.githubusercontent.com is unreachable from some networks; try the
         # jsDelivr mirror (no conditional request — its ETags differ per host).
@@ -61,7 +65,7 @@ def fetch_source(source: RemoteSource) -> FetchResult:
                 raise exc
             status, body, etag = _fetch(mirror, None)
         except Exception:  # noqa: BLE001
-            if target.is_file():
+            if has_cached_copy:
                 return FetchResult(source.name, "cached", f"fetch failed, keeping local copy: {exc}")
             return FetchResult(source.name, "error", str(exc))
 
@@ -69,7 +73,7 @@ def fetch_source(source: RemoteSource) -> FetchResult:
         return FetchResult(source.name, "unchanged")
     if status != 200:
         detail = f"HTTP {status}"
-        if target.is_file():
+        if has_cached_copy:
             return FetchResult(source.name, "cached", f"{detail}, keeping local copy")
         return FetchResult(source.name, "error", detail)
 

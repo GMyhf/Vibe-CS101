@@ -14,7 +14,7 @@ import sqlite3
 from dataclasses import dataclass
 from pathlib import Path
 
-from .config import DB_PATH, LOCAL_SOURCES, ORIGINAL_DIR, REMOTE_SOURCES
+from .config import DB_PATH, LOCAL_SOURCES, REMOTE_SOURCES
 
 MAX_SECTION_CHARS = 8000
 _CJK = re.compile(r"([㐀-䶿一-鿿豈-﫿])")
@@ -46,6 +46,17 @@ def build_match_query(query: str) -> str:
         if spaced:
             parts.append(f'"{spaced}"')
     return " ".join(parts)
+
+
+def build_any_match_query(query: str) -> str:
+    """Build a safe OR query for broad fallback searches."""
+    parts = []
+    for token in _FTS_TOKEN.findall(query):
+        spaced = cjk_space(token).strip()
+        spaced = spaced.replace('"', "")
+        if spaced:
+            parts.append(f'"{spaced}"')
+    return " OR ".join(parts)
 
 
 @dataclass(frozen=True)
@@ -103,12 +114,15 @@ def iter_sections() -> list[Section]:
     out: list[Section] = []
 
     for src in REMOTE_SOURCES:
-        f = ORIGINAL_DIR / f"{src.name}.md"
+        f = src.original_path
+        if not f.is_file():
+            f = src.legacy_original_path
         if not f.is_file():
             continue
         text = f.read_text(encoding="utf-8", errors="replace")
+        rel = f"{src.github_repo}/{src.upstream_filename}" if f == src.original_path else f.name
         for title, body in split_markdown(text, src.title):
-            out.append(Section(src.name, src.course, src.kind, str(f.name), title, body))
+            out.append(Section(src.name, src.course, src.kind, rel, title, body))
 
     for src in LOCAL_SOURCES:
         if not src.path.is_dir():

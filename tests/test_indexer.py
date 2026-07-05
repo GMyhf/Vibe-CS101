@@ -1,6 +1,10 @@
+import tempfile
 import unittest
+from pathlib import Path
+from unittest.mock import patch
 
-from vibe_cs101.indexer import build_match_query, cjk_space, split_markdown
+from vibe_cs101 import config, indexer
+from vibe_cs101.indexer import build_any_match_query, build_match_query, cjk_space, split_markdown
 
 
 class CjkSpaceTests(unittest.TestCase):
@@ -20,6 +24,12 @@ class MatchQueryTests(unittest.TestCase):
         self.assertNotIn("(", q)
         self.assertNotIn(")", q)
 
+    def test_any_match_query_ors_terms(self):
+        q = build_any_match_query("课程内容 学习路线")
+        self.assertIn(" OR ", q)
+        self.assertIn('"课 程 内 容"', q)
+        self.assertIn('"学 习 路 线"', q)
+
 
 class SplitMarkdownTests(unittest.TestCase):
     def test_heading_paths(self):
@@ -38,6 +48,42 @@ class SplitMarkdownTests(unittest.TestCase):
         sections = split_markdown(text, "doc")
         self.assertEqual(len(sections), 3)
         self.assertTrue(sections[1][0].endswith("(part 2)"))
+
+
+class RemoteSourceIndexTests(unittest.TestCase):
+    def setUp(self):
+        self._tmp = tempfile.TemporaryDirectory()
+        self.original_dir = Path(self._tmp.name) / "original"
+        self.src = config.REMOTE_SOURCES[0]
+
+    def tearDown(self):
+        self._tmp.cleanup()
+
+    def _with_tmp_original(self):
+        return patch.multiple(
+            "vibe_cs101.config",
+            ORIGINAL_DIR=self.original_dir,
+        )
+
+    def test_iter_sections_prefers_structured_remote_path(self):
+        structured = self.original_dir / self.src.github_repo / self.src.upstream_filename
+        legacy = self.original_dir / f"{self.src.name}.md"
+        structured.parent.mkdir(parents=True)
+        structured.write_text("## New\nstructured body", encoding="utf-8")
+        legacy.write_text("## Old\nlegacy body", encoding="utf-8")
+        with self._with_tmp_original(), patch.object(indexer, "LOCAL_SOURCES", []):
+            sections = indexer.iter_sections()
+        self.assertEqual(sections[0].file, "2024fall-cs101/2024fall_LeetCode_problems.md")
+        self.assertIn("structured body", sections[0].content)
+
+    def test_iter_sections_reads_legacy_remote_path(self):
+        legacy = self.original_dir / f"{self.src.name}.md"
+        legacy.parent.mkdir(parents=True)
+        legacy.write_text("## Legacy\nlegacy body", encoding="utf-8")
+        with self._with_tmp_original(), patch.object(indexer, "LOCAL_SOURCES", []):
+            sections = indexer.iter_sections()
+        self.assertEqual(sections[0].file, "leetcode.md")
+        self.assertIn("legacy body", sections[0].content)
 
 
 if __name__ == "__main__":

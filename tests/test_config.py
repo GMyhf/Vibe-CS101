@@ -37,5 +37,16 @@ class AuthConfigTests(unittest.TestCase):
                 config.load_auth_keys()
 
 
+class RemoteSourcePathTests(unittest.TestCase):
+    def test_github_repo_and_filename_come_from_raw_url(self):
+        src = config.REMOTE_SOURCES[0]
+        self.assertEqual(src.github_repo, "2024fall-cs101")
+        self.assertEqual(src.upstream_filename, "2024fall_LeetCode_problems.md")
+        self.assertEqual(
+            src.original_path.relative_to(config.ORIGINAL_DIR).as_posix(),
+            "2024fall-cs101/2024fall_LeetCode_problems.md",
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -6,6 +6,7 @@ import os
 import re
 from dataclasses import dataclass
 from pathlib import Path
+from urllib.parse import urlparse
 
 # Workspace root = parent of the vibe-cs101 project directory.
 PROJECT_DIR = Path(__file__).resolve().parent.parent
@@ -25,6 +26,32 @@ class RemoteSource:
     title: str
     course: str  # "cs101" or "cs201"
     kind: str = "solutions"
+
+    @property
+    def github_repo(self) -> str:
+        """Return the GitHub repository name used for structured storage."""
+        parsed = urlparse(self.url)
+        parts = [p for p in parsed.path.split("/") if p]
+        if parsed.netloc == "raw.githubusercontent.com" and len(parts) >= 2:
+            return parts[1]
+        return self.name
+
+    @property
+    def upstream_filename(self) -> str:
+        """Return the source file name from the upstream URL."""
+        parsed = urlparse(self.url)
+        parts = [p for p in parsed.path.split("/") if p]
+        return parts[-1] if parts else f"{self.name}.md"
+
+    @property
+    def original_path(self) -> Path:
+        """Structured local path for downloaded upstream files."""
+        return ORIGINAL_DIR / self.github_repo / self.upstream_filename
+
+    @property
+    def legacy_original_path(self) -> Path:
+        """Flat pre-structure cache path kept readable for compatibility."""
+        return ORIGINAL_DIR / f"{self.name}.md"
 
 
 @dataclass(frozen=True)

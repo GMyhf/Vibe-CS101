@@ -59,8 +59,9 @@
   button.primary { background: var(--brand); color: #fff; border: 0; border-radius: 8px;
           padding: 9px 16px; font: inherit; cursor: pointer; }
   button.primary:disabled { opacity: .5; cursor: default; }
-  button.ghost { background: none; border: 1px solid var(--border); border-radius: 8px;
-          padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--muted); }
+  button.ghost, a.ghost { background: none; border: 1px solid var(--border); border-radius: 8px;
+          padding: 5px 10px; font-size: 13px; cursor: pointer; color: var(--muted);
+          text-decoration: none; display: inline-flex; align-items: center; }
   .row { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
   .grow { flex: 1; min-width: 180px; }
 
@@ -70,19 +71,20 @@
               display: flex; flex-direction: column; gap: 18px; }
   #chat-empty { text-align: center; color: var(--muted); margin-top: 18vh; font-size: 14px; }
   #chat-empty .big { font-size: 22px; margin-bottom: 8px; color: var(--ink); }
-  .msg { line-height: 1.6; word-break: break-word; }
+  .msg { line-height: 1.45; word-break: break-word; }
   .msg.user { align-self: flex-end; max-width: 80%; background: var(--brand); color: #fff;
               padding: 10px 14px; border-radius: 14px 14px 4px 14px; white-space: pre-wrap; }
   .msg.bot { align-self: stretch; }
   .msg.bot .content > :first-child { margin-top: 0; }
   .msg.bot .content > :last-child { margin-bottom: 0; }
-  .msg.bot h1, .msg.bot h2, .msg.bot h3 { line-height: 1.3; margin: 14px 0 8px; }
-  .msg.bot h1 { font-size: 22px; }
-  .msg.bot h2 { font-size: 18px; }
-  .msg.bot h3 { font-size: 16px; }
-  .msg.bot p { margin: 8px 0; }
-  .msg.bot ul, .msg.bot ol { margin: 8px 0; padding-left: 24px; }
-  .msg.bot li { margin: 3px 0; }
+  .msg.bot h1, .msg.bot h2, .msg.bot h3 { line-height: 1.25; margin: 10px 0 5px; }
+  .msg.bot h1 { font-size: 19px; }
+  .msg.bot h2 { font-size: 17px; }
+  .msg.bot h3 { font-size: 15px; }
+  .msg.bot p { margin: 5px 0; }
+  .msg.bot ul, .msg.bot ol { margin: 4px 0 6px; padding-left: 20px; }
+  .msg.bot li { margin: 1px 0; }
+  .msg.bot li ul, .msg.bot li ol { margin: 2px 0; }
   .msg.bot code { background: var(--code-bg); padding: 1px 5px; border-radius: 4px; font-size: 13px; }
   .msg.bot pre { background: var(--code-bg); padding: 10px; border-radius: 8px; overflow-x: auto;
                  white-space: pre; position: relative; }
@@ -96,9 +98,10 @@
          border-collapse: collapse; font-size: 13px; }
   .msg.bot th, .msg.bot td { border: 1px solid var(--border); padding: 6px 8px; }
   .msg.bot th { background: var(--brand-soft); color: var(--ink); font-weight: 600; }
-  .msg.bot blockquote { margin: 10px 0; padding-left: 12px; border-left: 3px solid var(--border); color: var(--muted); }
-  .events { font-size: 12px; color: var(--muted); margin-top: 6px; }
-  .actions { display: flex; gap: 10px; align-items: center; margin-top: 8px;
+  .msg.bot blockquote { margin: 6px 0; padding-left: 10px; border-left: 3px solid var(--border); color: var(--muted); }
+  .events { font-size: 12px; color: var(--muted); margin-top: 4px; white-space: nowrap;
+            overflow: hidden; text-overflow: ellipsis; max-width: 100%; }
+  .actions { display: flex; gap: 10px; align-items: center; margin-top: 5px;
              font-size: 12px; color: var(--muted); }
   .actions button { border: 0; background: none; cursor: pointer; color: var(--muted);
                     font-size: 12px; padding: 3px 8px; border-radius: 6px; }
@@ -118,20 +121,59 @@
           color: var(--muted); font-size: 12px; }
 
   /* ---- search results ---- */
-  .hit { padding: 10px 4px; border-bottom: 1px solid var(--border); }
-  .hit:last-child { border-bottom: 0; }
-  .hit .title { font-weight: 600; cursor: pointer; color: var(--brand); }
-  .hit .meta { font-size: 12px; color: var(--muted); margin: 2px 0; }
-  .hit .snippet { font-size: 13px; color: var(--ink); }
-  .hit mark { background: #fde68a; padding: 0 2px; }
-  #section-view pre { white-space: pre-wrap; word-break: break-word; background: var(--code-bg);
-          padding: 12px; border-radius: 8px; max-height: 60vh; overflow: auto; font-size: 13px; }
+  .search-head { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+                 margin-bottom: 10px; color: var(--muted); font-size: 13px; }
+  .hit-list { display: grid; gap: 10px; }
+  .hit { display: grid; grid-template-columns: 48px minmax(0, 1fr) auto; gap: 12px;
+         align-items: start; padding: 13px; border: 1px solid var(--border); border-radius: 10px;
+         background: #fff; }
+  .hit:hover { border-color: #c7d2fe; box-shadow: 0 6px 18px rgba(79,70,229,.08); }
+  .hit-badge { width: 48px; height: 48px; border-radius: 10px; background: var(--brand-soft);
+               color: var(--brand); display: flex; flex-direction: column; justify-content: center;
+               align-items: center; line-height: 1.1; font-weight: 700; }
+  .hit-badge small { font-size: 10px; font-weight: 500; opacity: .85; }
+  .hit-main { min-width: 0; }
+  .hit .title { border: 0; background: none; padding: 0; font: inherit; text-align: left;
+                font-size: 15px; font-weight: 650; cursor: pointer; color: var(--ink);
+                line-height: 1.35; }
+  .hit .title:hover { color: var(--brand); }
+  .hit .meta { display: flex; flex-wrap: wrap; gap: 6px; margin: 6px 0; font-size: 12px; color: var(--muted); }
+  .hit-pill { border: 1px solid var(--border); border-radius: 999px; padding: 1px 7px; background: #fafafa; }
+  .hit .snippet { font-size: 13px; color: #374151; line-height: 1.5; }
+  .hit mark { background: #fef3c7; color: #92400e; padding: 0 3px; border-radius: 4px; }
+  .hit-actions { display: flex; align-items: center; }
+  .more-row { display: flex; justify-content: center; margin-top: 12px; }
+  .empty-state { padding: 26px 8px; text-align: center; color: var(--muted); }
+  @media (max-width: 720px) {
+    .hit { grid-template-columns: 40px minmax(0, 1fr); }
+    .hit-badge { width: 40px; height: 40px; }
+    .hit-actions { grid-column: 2; justify-content: flex-start; }
+  }
+  #section-dialog { max-width: 960px; }
+  #section-view { max-height: 68vh; overflow: auto; border-top: 1px solid var(--border);
+                  border-bottom: 1px solid var(--border); padding: 12px 2px; }
+  #section-view.rendered { line-height: 1.55; font-size: 14px; }
+  #section-view.rendered h1, #section-view.rendered h2, #section-view.rendered h3 {
+    margin: 14px 0 8px; line-height: 1.3;
+  }
+  #section-view.rendered p { margin: 7px 0; }
+  #section-view.rendered ul, #section-view.rendered ol { margin: 6px 0 8px; padding-left: 22px; }
+  .section-anchor { scroll-margin-top: 12px; border-left: 3px solid transparent; padding-left: 8px; }
+  .section-anchor.hit-focus { border-left-color: var(--brand); background: var(--brand-soft); border-radius: 8px; }
+  #section-view.rendered pre, #section-view pre { white-space: pre-wrap; word-break: break-word;
+          background: var(--code-bg); padding: 12px; border-radius: 8px; overflow: auto; font-size: 13px; }
   /* ---- mistakes ---- */
   table { width: 100%; border-collapse: collapse; font-size: 14px; }
   th, td { text-align: left; padding: 8px 6px; border-bottom: 1px solid var(--border); }
   th { color: var(--muted); font-weight: 500; font-size: 12px; }
   .tag { display: inline-block; background: var(--brand-soft); color: var(--brand);
          border-radius: 6px; padding: 1px 7px; font-size: 12px; margin-right: 4px; }
+  .mistake-title { color: var(--brand); cursor: pointer; font-weight: 600; text-decoration: none;
+                   border: 0; background: none; padding: 0; font: inherit; }
+  .mistake-title:hover { text-decoration: underline; }
+  .mistake-detail { display: grid; gap: 10px; font-size: 14px; }
+  .mistake-detail .label { color: var(--muted); font-size: 12px; margin-bottom: 2px; }
+  .mistake-detail .box { border: 1px solid var(--border); border-radius: 8px; padding: 9px 10px; }
   .due { color: var(--warn); font-weight: 600; }
   .mastered { color: var(--ok); }
   .statgrid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
@@ -142,10 +184,72 @@
   .stat .lbl { font-size: 12px; color: var(--muted); }
   .bar { height: 8px; background: var(--brand-soft); border-radius: 4px; overflow: hidden; }
   .bar i { display: block; height: 100%; background: var(--brand); }
+  details.lib-dir { border-top: 1px solid var(--border); padding: 8px 0; }
+  details.lib-dir:first-of-type { border-top: 0; }
+  details.lib-dir summary { cursor: pointer; font-weight: 600; }
+  details.lib-dir summary span { font-weight: 400; }
+  .tool-frame-wrap { flex: 1; min-height: 0; display: flex; flex-direction: column; }
+  .tool-frame-head { display: flex; justify-content: space-between; align-items: center; gap: 12px;
+                     padding: 12px 16px; border-bottom: 1px solid var(--border); background: #fff; }
+  .tool-frame-head h2 { margin: 0; font-size: 18px; }
+  .tool-frame-head .left { min-width: 0; }
+  .tool-frame-head .right { display: flex; gap: 8px; flex-wrap: wrap; justify-content: flex-end; }
+  .tool-frame { flex: 1; min-height: 0; width: 100%; border: 0; background: #fff; }
+  .admin-shell { max-width: 1120px; margin: 0 auto; }
+  .admin-home { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                gap: 16px; margin-bottom: 18px; }
+  .admin-card-link { display: flex; gap: 16px; align-items: center; border: 1px solid var(--border);
+                     border-radius: 16px; padding: 18px; background: #fff; cursor: pointer;
+                     box-shadow: 0 8px 22px rgba(15,23,42,.04); }
+  .admin-card-link:hover { border-color: #e7b7b7; box-shadow: 0 10px 26px rgba(166,0,0,.08); }
+  .admin-icon { width: 46px; height: 46px; border-radius: 12px; display: grid; place-items: center;
+                background: #fff1f2; color: #a60000; font-size: 22px; flex-shrink: 0; }
+  .admin-card-link.primary .admin-icon { background: #a60000; color: #fff; }
+  .admin-card-link h3 { margin: 0 0 6px; font-size: 20px; }
+  .admin-head { display: flex; justify-content: space-between; gap: 12px; align-items: center;
+                margin: 14px 0 24px; padding-bottom: 24px; border-bottom: 1px solid var(--border); }
+  .admin-title { display: flex; gap: 16px; align-items: center; }
+  .admin-title h2 { margin: 0 0 6px; font-size: 24px; }
+  .admin-tabs { display: flex; gap: 6px; border-bottom: 1px solid var(--border); margin-bottom: 14px; }
+  .admin-tabs button { border: 0; background: none; padding: 9px 12px; cursor: pointer;
+                       color: var(--muted); border-bottom: 2px solid transparent; font: inherit; }
+  .admin-tabs button.active { color: var(--brand); border-color: var(--brand); font-weight: 600; }
+  .admin-panel { display: none; }
+  .admin-panel.active { display: block; }
+  .admin-stats { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .admin-stat { border-radius: 16px; background: #fff; padding: 18px 20px; box-shadow: 0 8px 22px rgba(15,23,42,.04); }
+  .admin-stat.hot { border: 1px solid #efcaca; background: linear-gradient(110deg, #fff6f6, #fff); }
+  .admin-stat .label { color: var(--muted); font-size: 14px; font-weight: 600; }
+  .admin-stat .num { color: #111827; font-size: 28px; font-weight: 800; margin-top: 4px; }
+  .admin-stat.hot .num { color: #a60000; }
+  .toolbar { display: flex; gap: 8px; align-items: center; justify-content: space-between; margin-bottom: 10px; }
+  .toolbar .left, .toolbar .right { display: flex; gap: 8px; flex-wrap: wrap; align-items: center; }
+  .segmented { display: inline-flex; gap: 4px; padding: 3px; border: 1px solid var(--border);
+               border-radius: 10px; background: #fafafa; }
+  .segmented button { border: 0; background: transparent; border-radius: 7px; padding: 6px 10px;
+                      color: var(--muted); cursor: pointer; font: inherit; font-size: 13px; }
+  .segmented button.active { background: #fff; color: var(--brand); box-shadow: 0 1px 4px rgba(15,23,42,.08); font-weight: 600; }
+  .badge { display: inline-block; border: 1px solid var(--border); border-radius: 999px;
+           padding: 2px 8px; font-size: 12px; color: var(--muted); background: var(--side); }
+  .badge.on { color: var(--ok); border-color: #a7f3d0; background: #ecfdf5; }
+  .badge.off { color: var(--muted); }
+  .admin-table { border: 1px solid var(--border); border-radius: 16px; overflow: hidden; background: #fff; }
+  .admin-table table { margin: 0; }
+  .admin-table td, .admin-table th { vertical-align: middle; padding: 16px 20px; border-right: 1px solid var(--border); }
+  .admin-table th:last-child, .admin-table td:last-child { border-right: 0; }
+  .admin-table th { background: #fafafa; font-size: 14px; color: #374151; font-weight: 700; }
+  .admin-table tbody tr:last-child td { border-bottom: 0; }
+  .admin-table .actions { margin: 0; gap: 6px; }
+  .admin-pagebar { display: flex; align-items: center; justify-content: space-between;
+                   padding: 12px 18px; color: var(--muted); background: #fafafa; font-size: 13px; }
   .muted { color: var(--muted); font-size: 13px; }
   .error { color: #b91c1c; font-size: 13px; min-height: 18px; }
   dialog { border: 1px solid var(--border); border-radius: 12px; padding: 18px; max-width: 720px; width: 90%; }
   dialog.auth { max-width: 420px; }
+  dialog.import { max-width: 680px; padding: 28px 36px; }
+  .import-tip { border: 1px solid #efcaca; background: #fff8f8; border-radius: 12px;
+                padding: 12px 16px; color: var(--muted); margin: 16px 0 12px; }
+  #admin-import-text { width: 100%; min-height: 230px; font-size: 16px; line-height: 1.7; }
   dialog::backdrop { background: rgba(0,0,0,.35); }
 
   /* ---- narrow screens: sidebar becomes top bar ---- */
@@ -157,6 +261,10 @@
     .brand .sub { display: none; }
     .side-foot { display: none; }
     main { height: auto; flex: 1; min-height: 0; }
+    .tool-frame-wrap { min-height: 70vh; }
+    .tool-frame-head { align-items: flex-start; flex-direction: column; }
+    .admin-stats { grid-template-columns: 1fr; }
+    .admin-head { align-items: flex-start; flex-direction: column; }
   }
 </style>
 </head>
@@ -172,8 +280,10 @@
     <button data-tab="chat" class="active">💬 对话</button>
     <button data-tab="search">🔍 检索</button>
     <button data-tab="library">📚 知识库</button>
+    <button data-tab="sol101">🧭 题解查询</button>
     <button data-tab="mistakes">📌 错题本</button>
     <button data-tab="stats">📈 学习进度</button>
+    <button data-tab="admin" id="admin-tab" style="display:none">⚙️ 管理</button>
   </nav>
   <div id="session-list"></div>
   <div class="side-foot">
@@ -216,7 +326,7 @@
         <button id="search-btn" class="primary">检索</button>
       </div>
     </div>
-    <div class="card" id="search-results"><p class="muted">离线全文检索，无需 API key。</p></div>
+    <div id="search-results"><div class="empty-state">离线全文检索，无需 API key。</div></div>
   </div></div>
 </section>
 
@@ -227,10 +337,32 @@
         <input id="lib-filter" class="grow" placeholder="按文件名过滤，如：dp / cheatsheet / week01">
         <button id="lib-refresh" class="ghost">刷新</button>
       </div>
-      <p class="muted" style="margin-bottom:0">老师的原始课件与题解文件，可在线查看或下载。</p>
+      <p class="muted" style="margin-bottom:0">老师的原始课件与题解文件，可在线查看或下载；目录首层为来源仓库名。</p>
     </div>
     <div id="lib-sources"><p class="muted">加载中…</p></div>
   </div></div>
+</section>
+
+<section id="panel-sol101" class="panel">
+  <div class="tool-frame-wrap">
+    <div class="tool-frame-head">
+      <div class="left">
+        <h2>题解查询</h2>
+        <div class="muted">本机托管的 Solutions FuYnAloft：OpenJudge 和 Codeforces 题解。</div>
+      </div>
+      <div class="right">
+        <a class="ghost" id="sol101-open" href="/sol101/" target="_blank" rel="noopener">新窗口打开</a>
+        <a class="ghost" id="sol101-repo" href="https://github.com/FuYnAloft/sol101" target="_blank" rel="noopener">源码仓库</a>
+      </div>
+    </div>
+    <iframe
+      id="sol101-frame"
+      class="tool-frame"
+      title="sol101 题解查询"
+      src="about:blank"
+      loading="lazy"
+      referrerpolicy="no-referrer-when-downgrade"></iframe>
+  </div>
 </section>
 
 <section id="panel-mistakes" class="panel">
@@ -261,12 +393,109 @@
   </div></div>
 </section>
 
+<section id="panel-admin" class="panel">
+  <div class="panel-pad"><div class="admin-shell">
+    <div class="admin-home">
+      <div class="admin-card-link" data-admin-jump="knowledge">
+        <div class="admin-icon">⌑</div>
+        <div><h3>知识库管理</h3><p class="muted" style="margin:0">维护课程资料与检索范围</p></div>
+      </div>
+      <div class="admin-card-link primary" data-admin-jump="members" id="admin-member-card" style="display:none">
+        <div class="admin-icon">♙</div>
+        <div><h3>成员管理</h3><p class="muted" style="margin:0">导入、移除学生和调整助教</p></div>
+      </div>
+    </div>
+    <div class="admin-head">
+      <div class="admin-title">
+        <div class="admin-icon primary" style="background:#a60000;color:#fff">♙</div>
+        <div>
+          <h2 id="admin-title">课程成员管理</h2>
+          <p class="muted" id="admin-subtitle" style="margin:0">高中与大学的计算机基础课程衔接</p>
+        </div>
+      </div>
+      <button id="admin-refresh" class="ghost">刷新</button>
+    </div>
+    <div class="admin-tabs">
+      <button data-admin-view="knowledge" class="active">知识库管理</button>
+      <button data-admin-view="members" id="admin-members-tab" style="display:none">成员管理</button>
+      <button data-admin-view="logs">行为日志</button>
+    </div>
+
+    <div id="admin-view-knowledge" class="admin-panel active">
+      <div class="admin-stats" id="admin-course-stats"></div>
+      <div class="toolbar">
+        <div class="left">
+          <strong>资源配置</strong>
+          <span class="muted">控制课程检索和对话可用的课件/题解；不删除原始文件</span>
+        </div>
+      </div>
+      <div id="admin-courses"><p class="muted">加载中…</p></div>
+    </div>
+
+    <div id="admin-view-members" class="admin-panel">
+      <div class="admin-stats" id="admin-member-stats"></div>
+      <div class="toolbar">
+        <div class="left">
+          <div class="segmented" id="admin-user-filter">
+            <button class="active" type="button" data-role="all">全部</button>
+            <button type="button" data-role="student">学生列表</button>
+            <button type="button" data-role="assistant">助教列表</button>
+            <button type="button" data-role="teacher">教师</button>
+          </div>
+        </div>
+        <div class="right">
+          <input id="admin-user-name" placeholder="学号/用户名">
+          <input id="admin-display-name" placeholder="姓名">
+          <input id="admin-department" placeholder="院系">
+          <select id="admin-user-role">
+            <option value="student">学生</option>
+            <option value="assistant">助教</option>
+            <option value="teacher">教师</option>
+          </select>
+          <button id="admin-user-add" class="primary">添加成员</button>
+          <button id="admin-import-open" class="primary">批量导入</button>
+          <button id="admin-export-members" class="ghost">导出成员</button>
+        </div>
+      </div>
+      <p class="muted">每个成员都有单独登录 key。明文 key 只会在添加、批量导入或重置时显示一次；导出成员不会包含 key。</p>
+      <p id="admin-user-key" class="muted"></p>
+      <div class="admin-table"><table id="admin-users"><thead><tr><th>学号</th><th>姓名</th><th>院系</th><th>权限</th><th>加入时间</th><th>操作</th></tr></thead><tbody></tbody></table>
+        <div class="admin-pagebar"><span id="admin-users-total">共 0 条记录</span><span id="admin-users-filter-label">全部成员</span></div></div>
+    </div>
+
+    <div id="admin-view-logs" class="admin-panel">
+      <div class="toolbar">
+        <div class="left">
+          <input id="admin-log-user" placeholder="按用户过滤">
+          <select id="admin-log-action">
+            <option value="">全部行为</option>
+            <option value="chat">对话</option>
+            <option value="search">检索</option>
+            <option value="document_read">全文阅读</option>
+            <option value="section_read">章节阅读</option>
+            <option value="library_view">知识库查看</option>
+            <option value="library_download">知识库下载</option>
+            <option value="sol101_view">题解查询</option>
+            <option value="mistakes_view">错题本查看</option>
+            <option value="mistake_view">错题详情查看</option>
+            <option value="mistake_add">添加错题</option>
+            <option value="mistake_review">复习错题</option>
+            <option value="stats_view">学习进度</option>
+          </select>
+          <button id="admin-log-refresh" class="ghost">刷新</button>
+        </div>
+      </div>
+      <div class="admin-table"><table id="admin-logs"><thead><tr><th>时间</th><th>用户</th><th>角色</th><th>行为</th><th>详情</th></tr></thead><tbody></tbody></table></div>
+    </div>
+  </div></div>
+</section>
+
 </main>
 
 <dialog id="section-dialog">
   <h3 id="section-title" style="margin-top:0"></h3>
   <p class="muted" id="section-meta"></p>
-  <div id="section-view"><pre></pre></div>
+  <div id="section-view"></div>
   <div class="row" style="justify-content:flex-end"><button class="ghost" onclick="this.closest('dialog').close()">关闭</button></div>
 </dialog>
 
@@ -274,6 +503,7 @@
   <h3 style="margin-top:0">记一道错题</h3>
   <div style="display:flex;flex-direction:column;gap:8px">
     <input id="mi-problem" placeholder="题目标识 *，如：OpenJudge 26977 接雨水">
+    <input id="mi-link" placeholder="原题链接（可选），如：http://cs101.openjudge.cn/practice/02733/">
     <div class="row">
       <select id="mi-course"><option value="">课程（可选）</option>
         <option value="cs101">cs101</option><option value="cs201">cs201</option></select>
@@ -285,6 +515,28 @@
   <div class="row" style="justify-content:flex-end;margin-top:12px">
     <button class="ghost" onclick="this.closest('dialog').close()">取消</button>
     <button id="mi-save" class="primary">保存</button>
+  </div>
+</dialog>
+
+<dialog id="mi-detail-dialog">
+  <h3 id="mi-detail-title" style="margin-top:0"></h3>
+  <div id="mi-detail-body" class="mistake-detail"></div>
+  <div class="row" style="justify-content:flex-end;margin-top:12px">
+    <button class="ghost" onclick="this.closest('dialog').close()">关闭</button>
+  </div>
+</dialog>
+
+<dialog id="admin-import-dialog" class="import">
+  <div class="row" style="justify-content:space-between;align-items:center">
+    <h3 style="margin:0;font-size:22px">批量导入学生</h3>
+    <button class="ghost" onclick="this.closest('dialog').close()">×</button>
+  </div>
+  <div class="import-tip">输入学生学号、姓名、院系，支持换行、逗号、分号或空格分隔。</div>
+  <textarea id="admin-import-text" placeholder="例如：2200012345 张三 信息科学技术学院&#10;2200012346 李四 物理学院"></textarea>
+  <p id="admin-import-result" class="muted"></p>
+  <div class="row" style="justify-content:flex-end;margin-top:18px">
+    <button class="ghost" onclick="this.closest('dialog').close()">取消</button>
+    <button id="admin-import-save" class="primary">导入</button>
   </div>
 </dialog>
 
@@ -303,7 +555,10 @@ const $ = s => document.querySelector(s);
 const AUTH_STORE = 'vibe-cs101-auth-key';
 let authKey = localStorage.getItem(AUTH_STORE) || '';
 let currentUser = null;
+let currentRole = 'student';
+let permissions = {};
 let sessionId = null;
+let sol101Loaded = false;
 
 const api = async (path, opts = {}) => {
   const headers = {...(opts.headers || {})};
@@ -319,11 +574,24 @@ const api = async (path, opts = {}) => {
   return data;
 };
 const esc = s => s.replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+const safeHttpUrl = s => {
+  try {
+    const u = new URL(String(s || ''));
+    return ['http:', 'https:'].includes(u.protocol) ? u.href : '';
+  } catch (e) { return ''; }
+};
+const baseName = s => String(s || '').split('/').pop();
 
 function setUser(me) {
   currentUser = me.user;
-  $('#user-status').textContent = me.auth_enabled ? `用户：${me.user}` : '本机模式';
+  currentRole = me.role || 'student';
+  permissions = me;
+  const roleName = {teacher: '教师', assistant: '助教', student: '学生'}[currentRole] || currentRole;
+  $('#user-status').textContent = me.auth_enabled ? `用户：${me.user}（${roleName}）` : '本机模式';
   $('#auth-switch').style.display = me.auth_enabled ? '' : 'none';
+  $('#admin-tab').style.display = me.can_manage_courses || me.can_view_student_logs ? '' : 'none';
+  $('#admin-members-tab').style.display = me.can_manage_users ? '' : 'none';
+  $('#admin-member-card').style.display = me.can_manage_users ? '' : 'none';
 }
 function showAuth(message = '') {
   $('#auth-error').textContent = message;
@@ -367,6 +635,8 @@ document.querySelectorAll('aside nav button').forEach(b => b.onclick = () => {
   if (b.dataset.tab === 'mistakes') loadMistakes();
   if (b.dataset.tab === 'stats') loadStats();
   if (b.dataset.tab === 'library' && !libLoaded) loadLibrary();
+  if (b.dataset.tab === 'sol101' && !sol101Loaded) loadSol101();
+  if (b.dataset.tab === 'admin') loadAdmin();
 });
 function showChatTab() {
   document.querySelectorAll('aside nav button').forEach(x =>
@@ -455,6 +725,8 @@ $('#chat-new').onclick = newSess;
 
 /* ---- markdown-lite 渲染 ---- */
 const inlineMd = s => esc(s)
+  .replace(/!\[([^\]\n]*)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">[图片] $1</a>')
+  .replace(/\[([^\]\n]+)\]\((https?:\/\/[^)\s]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
   .replace(/`([^`\n]+)`/g, '<code>$1</code>')
   .replace(/\*\*([^*\n]+)\*\*/g, '<strong>$1</strong>')
   .replace(/\*([^*\n]+)\*/g, '<em>$1</em>');
@@ -529,6 +801,42 @@ function mdLite(text) {
   if (code) out.push(`<pre><code>${esc(code.lines.join('\n'))}</code></pre>`);
   flushPara(); flushList();
   return out.join('');
+}
+function showMarkdownDoc(title, meta, content) {
+  $('#section-title').textContent = title;
+  $('#section-meta').textContent = meta;
+  const view = $('#section-view');
+  view.className = 'rendered';
+  view.innerHTML = mdLite(content || '');
+  $('#section-dialog').showModal();
+}
+function showIndexedDoc(doc) {
+  $('#section-title').textContent = baseName(doc.file);
+  $('#section-meta').textContent =
+    `${doc.source} / ${doc.course} / ${doc.file} · ${doc.section_count} 个片段 · 命中 #${doc.matched_section_id}`;
+  const view = $('#section-view');
+  view.className = 'rendered';
+  const sections = Array.isArray(doc.sections) && doc.sections.length
+    ? doc.sections
+    : [{id: doc.matched_section_id, title: doc.matched_title, content: doc.content}];
+  view.innerHTML = sections.map(s =>
+    `<section class="section-anchor" data-section-id="${s.id}">${mdLite(s.content || '')}</section>`
+  ).join('');
+  $('#section-dialog').showModal();
+  setTimeout(() => {
+    const target = view.querySelector(`[data-section-id="${doc.matched_section_id}"]`);
+    if (!target) return;
+    target.scrollIntoView({block: 'start'});
+    target.classList.add('hit-focus');
+  }, 0);
+}
+function showPlainDoc(title, meta, content) {
+  $('#section-title').textContent = title;
+  $('#section-meta').textContent = meta;
+  const view = $('#section-view');
+  view.className = '';
+  view.innerHTML = `<pre>${esc(content || '')}</pre>`;
+  $('#section-dialog').showModal();
 }
 
 /* ---- chat messages ---- */
@@ -695,33 +1003,87 @@ $('#chat-input').addEventListener('input', function () {
 });
 
 /* ---- search ---- */
+let searchState = {query: '', course: '', results: [], visible: 10};
+const SEARCH_PAGE = 10;
+const queryTerms = q => [...new Set((String(q || '').match(/[0-9A-Za-z_.+#-]+|[\u3400-\u9fff]+/g) || [])
+  .map(x => x.trim()).filter(x => x.length >= 2).sort((a, b) => b.length - a.length))];
+const escRe = s => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+function highlightText(text, query) {
+  let html = esc(String(text || ''));
+  for (const term of queryTerms(query)) {
+    html = html.replace(new RegExp(escRe(esc(term)), 'gi'), '<mark>$&</mark>');
+  }
+  return html;
+}
+function renderSearchResults() {
+  const box = $('#search-results');
+  const {query: q, course, results, visible} = searchState;
+  const rows = results.slice(0, visible);
+  const courseName = c => c === 'cs101' ? '计概' : (c === 'cs201' ? '数算' : c);
+  const sourceName = s => ({
+    '2025fall-cs101': '课件', '2026spring-cs201': '课件',
+    leetcode: 'LeetCode', 'leetcode-tough': 'LeetCode+', openjudge: 'OpenJudge',
+    codeforces: 'Codeforces', 'cs201-dsa': '数算题解', sunnywhy: '晴问'
+  })[s] || s;
+  box.innerHTML = `
+    <div class="search-head">
+      <span>显示 ${rows.length} / ${results.length} 条结果</span>
+      <span>${esc(course ? courseName(course) : '全部课程')} · ${esc(q)}</span>
+    </div>
+    <div class="hit-list">${rows.map(h => `
+    <div class="hit">
+      <div class="hit-badge">${esc(h.course.replace('cs', 'CS'))}<small>${esc(sourceName(h.source))}</small></div>
+      <div class="hit-main">
+        <button class="title" data-id="${h.section_id}">${esc(h.title)}</button>
+        <div class="meta">
+          <span class="hit-pill">${esc(courseName(h.course))}</span>
+          <span class="hit-pill">${esc(sourceName(h.source))}</span>
+          <span class="hit-pill" title="${esc(h.file)}">${esc(baseName(h.file))}</span>
+          <span class="hit-pill">#${h.section_id}</span>
+        </div>
+        <div class="snippet">${highlightText(h.snippet, q)}</div>
+      </div>
+      <div class="hit-actions row">
+        <button class="ghost" data-open-doc="${h.section_id}">打开全文</button>
+        <button class="ghost" data-open-section="${h.section_id}">片段</button>
+      </div>
+    </div>`).join('')}</div>
+    ${visible < results.length ? '<div class="more-row"><button class="ghost" id="search-more">显示更多</button></div>' : ''}`;
+  box.querySelectorAll('[data-id], [data-open-doc]').forEach(t =>
+    t.onclick = () => openDocument(t.dataset.id || t.dataset.openDoc));
+  box.querySelectorAll('[data-open-section]').forEach(t =>
+    t.onclick = () => openSection(t.dataset.openSection));
+  const more = $('#search-more');
+  if (more) more.onclick = () => { searchState.visible += SEARCH_PAGE; renderSearchResults(); };
+}
 async function doSearch() {
   const q = $('#search-q').value.trim();
   if (!q) return;
   const course = $('#search-course').value;
   const box = $('#search-results');
-  box.innerHTML = '<p class="muted">检索中…</p>';
+  box.innerHTML = '<div class="empty-state">检索中…</div>';
   try {
     const d = await api(`/api/search?q=${encodeURIComponent(q)}&limit=20${course ? `&course=${course}` : ''}`);
-    if (!d.results.length) { box.innerHTML = '<p class="muted">无匹配结果</p>'; return; }
-    box.innerHTML = d.results.map(h => `
-      <div class="hit">
-        <div class="title" data-id="${h.section_id}">${esc(h.title)}</div>
-        <div class="meta">${esc(h.source)} / ${esc(h.course)} / ${esc(h.file)} · #${h.section_id}</div>
-        <div class="snippet">${esc(h.snippet).replace(/\[([^\]]+)\]/g, '<mark>$1</mark>')}</div>
-      </div>`).join('');
-    box.querySelectorAll('.title').forEach(t => t.onclick = () => openSection(t.dataset.id));
+    if (!d.results.length) {
+      box.innerHTML = '<div class="empty-state">没有匹配结果。试试更短的关键词，或切换课程范围。</div>';
+      return;
+    }
+    searchState = {query: q, course, results: d.results, visible: SEARCH_PAGE};
+    renderSearchResults();
   } catch (e) { box.innerHTML = `<p class="muted">⚠️ ${esc(e.message)}</p>`; }
 }
 $('#search-btn').onclick = doSearch;
 $('#search-q').addEventListener('keydown', e => { if (e.key === 'Enter' && !e.isComposing) doSearch(); });
+async function openDocument(id) {
+  try {
+    const d = await api(`/api/document/${id}`);
+    showIndexedDoc(d);
+  } catch (e) { alert(e.message); }
+}
 async function openSection(id) {
   try {
     const s = await api(`/api/section/${id}`);
-    $('#section-title').textContent = s.title;
-    $('#section-meta').textContent = `${s.source} / ${s.course} / ${s.file} · #${s.section_id}`;
-    $('#section-view pre').textContent = s.content;
-    $('#section-dialog').showModal();
+    showMarkdownDoc(s.title, `${s.source} / ${s.course} / ${s.file} · #${s.section_id}`, s.content);
   } catch (e) { alert(e.message); }
 }
 
@@ -731,6 +1093,18 @@ let libData = [];
 const TEXT_EXTS = ['md', 'py', 'cpp', 'c', 'h', 'txt', 'csv'];
 const VIEW_EXTS = [...TEXT_EXTS, 'pdf', 'png', 'jpg', 'jpeg', 'gif'];
 const fmtSize = n => n < 1024 ? `${n}B` : n < 1048576 ? `${(n / 1024).toFixed(0)}KB` : `${(n / 1048576).toFixed(1)}MB`;
+function groupLibFiles(files) {
+  const groups = new Map();
+  for (const f of files) {
+    const displayPath = f.display_path || f.path;
+    const parts = displayPath.split('/');
+    const dir = parts.length > 1 ? parts[0] : '根目录';
+    const shown = parts.length > 1 ? parts.slice(1).join('/') : displayPath;
+    if (!groups.has(dir)) groups.set(dir, []);
+    groups.get(dir).push({...f, display_path: displayPath, shown});
+  }
+  return [...groups.entries()].map(([dir, rows]) => ({dir, rows}));
+}
 async function loadLibrary() {
   const box = $('#lib-sources');
   box.innerHTML = '<p class="muted">加载中…</p>';
@@ -746,21 +1120,31 @@ function renderLibrary() {
   const box = $('#lib-sources');
   if (!libData.length) { box.innerHTML = '<p class="muted">（无资料目录：课件仓库不在本机，或还未运行 update 下载题解）</p>'; return; }
   box.innerHTML = libData.map(src => {
-    const files = src.files.filter(f => !filter || f.path.toLowerCase().includes(filter));
+    const files = src.files.filter(f => {
+      const displayPath = f.display_path || f.path;
+      return !filter || displayPath.toLowerCase().includes(filter) || f.path.toLowerCase().includes(filter);
+    });
     if (filter && !files.length) return '';
-    const rows = files.slice(0, 200).map(f => {
-      const ext = f.path.split('.').pop().toLowerCase();
-      const view = VIEW_EXTS.includes(ext)
-        ? `<button class="ghost" data-act="view" data-src="${esc(src.name)}" data-path="${esc(f.path)}">查看</button>` : '';
-      return `<tr><td style="word-break:break-all">${esc(f.path)}</td>
-        <td class="muted" style="white-space:nowrap">${fmtSize(f.size)}</td>
-        <td class="row" style="flex-wrap:nowrap">${view}
-          <button class="ghost" data-act="dl" data-src="${esc(src.name)}" data-path="${esc(f.path)}">下载</button>
-        </td></tr>`;
+    const visible = files.slice(0, 200);
+    const grouped = groupLibFiles(visible);
+    const dirs = grouped.map(g => {
+      const rows = g.rows.map(f => {
+        const ext = f.path.split('.').pop().toLowerCase();
+        const view = VIEW_EXTS.includes(ext)
+          ? `<button class="ghost" data-act="view" data-src="${esc(src.name)}" data-path="${esc(f.path)}">查看</button>` : '';
+        return `<tr><td style="word-break:break-all" title="${esc(f.display_path)}">${esc(f.shown)}</td>
+          <td class="muted" style="white-space:nowrap">${fmtSize(f.size)}</td>
+          <td class="row" style="flex-wrap:nowrap">${view}
+            <button class="ghost" data-act="dl" data-src="${esc(src.name)}" data-path="${esc(f.path)}">下载</button>
+          </td></tr>`;
+      }).join('');
+      const open = filter || g.dir === '根目录' || grouped.length <= 3 ? ' open' : '';
+      return `<details class="lib-dir"${open}><summary>${esc(g.dir)} <span class="muted">（${g.rows.length} 个文件）</span></summary>
+        <table><tbody>${rows}</tbody></table></details>`;
     }).join('');
     const more = files.length > 200 ? `<p class="muted">仅显示前 200 个，共 ${files.length} 个（可用过滤缩小范围）</p>` : '';
     return `<div class="card"><h3 style="margin-top:0">${esc(src.title)} <span class="muted" style="font-weight:400;font-size:13px">（${files.length} 个文件）</span></h3>
-      <table><tbody>${rows}</tbody></table>${more}</div>`;
+      ${dirs}${more}</div>`;
   }).join('') || '<p class="muted">无匹配文件</p>';
   box.querySelectorAll('button').forEach(b => b.onclick = () => {
     if (b.dataset.act === 'view') viewLibFile(b.dataset.src, b.dataset.path);
@@ -782,10 +1166,10 @@ async function viewLibFile(src, path) {
     const r = await fetch(libFileUrl(src, path, false), {headers});
     if (!r.ok) throw new Error(`HTTP ${r.status}`);
     const text = await r.text();
-    $('#section-title').textContent = path.split('/').pop();
-    $('#section-meta').textContent = `${src} / ${path}`;
-    $('#section-view pre').textContent = text;
-    $('#section-dialog').showModal();
+    const title = path.split('/').pop();
+    const meta = `${src} / ${path}`;
+    if (ext === 'md') showMarkdownDoc(title, meta, text);
+    else showPlainDoc(title, meta, text);
   } catch (e) { alert(e.message); }
 }
 async function downloadLibFile(src, path) {
@@ -802,6 +1186,19 @@ async function downloadLibFile(src, path) {
   } catch (e) { alert(e.message); }
 }
 
+/* ---- sol101 ---- */
+async function loadSol101() {
+  try {
+    const d = await api('/api/sol101');
+    $('#sol101-open').href = d.site_url;
+    $('#sol101-repo').href = d.repo_url;
+    $('#sol101-frame').src = d.site_url;
+    sol101Loaded = true;
+  } catch (e) {
+    $('#sol101-frame').srcdoc = `<p style="font-family:sans-serif;padding:20px;color:#6b7280">无法加载题解查询：${esc(e.message)}</p>`;
+  }
+}
+
 /* ---- mistakes ---- */
 async function loadMistakes() {
   const view = $('#mi-view').value;
@@ -813,11 +1210,16 @@ async function loadMistakes() {
     const tags = m.tags ? m.tags.split(',').filter(Boolean).map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : '';
     const review = m.status === 'mastered' ? '<span class="mastered">已掌握 🎓</span>'
       : (m.next_review <= today ? `<span class="due">${m.next_review}（到期）</span>` : m.next_review);
+    const link = safeHttpUrl(m.link);
+    const title = link
+      ? `<a class="mistake-title" href="${esc(link)}" target="_blank" rel="noopener" title="打开原题">${esc(m.problem)}</a>`
+      : `<button class="mistake-title" data-act="detail" data-id="${m.id}" title="查看详情">${esc(m.problem)}</button>`;
     return `<tr>
       <td>${m.id}</td>
-      <td>${esc(m.problem)}${m.course ? ` <span class="muted">(${m.course})</span>` : ''}</td>
+      <td>${title}${m.course ? ` <span class="muted">(${m.course})</span>` : ''}</td>
       <td>${tags}</td><td class="muted">${esc(m.reason || '')}</td><td>${review}</td>
       <td class="row">
+        <button class="ghost" data-act="detail" data-id="${m.id}" title="查看详情">详情</button>
         <button class="ghost" data-act="good" data-id="${m.id}" title="记住了">✓ 会了</button>
         <button class="ghost" data-act="again" data-id="${m.id}" title="还不会">✗ 再来</button>
         <button class="ghost" data-act="rm" data-id="${m.id}">删</button>
@@ -825,7 +1227,10 @@ async function loadMistakes() {
   }).join('');
   tbody.querySelectorAll('button').forEach(b => b.onclick = async () => {
     const id = b.dataset.id;
-    if (b.dataset.act === 'rm') {
+    if (b.dataset.act === 'detail') {
+      await openMistake(id);
+      return;
+    } else if (b.dataset.act === 'rm') {
       if (!confirm(`删除错题 #${id}？`)) return;
       await api(`/api/mistakes/${id}`, {method: 'DELETE'});
     } else {
@@ -836,6 +1241,28 @@ async function loadMistakes() {
     loadMistakes();
   });
 }
+async function openMistake(id) {
+  try {
+    const d = await api(`/api/mistakes/${id}`);
+    const m = d.mistake;
+    const tags = m.tags ? m.tags.split(',').filter(Boolean).map(t => `<span class="tag">${esc(t.trim())}</span>`).join('') : '<span class="muted">（无）</span>';
+    const link = safeHttpUrl(m.link);
+    $('#mi-detail-title').textContent = `#${m.id} ${m.problem}`;
+    $('#mi-detail-body').innerHTML = `
+      <div class="box"><div class="label">题目</div>
+        <div>${link ? `<a href="${esc(link)}" target="_blank" rel="noopener">${esc(m.problem)}</a>` : esc(m.problem)}
+        ${m.course ? ` <span class="muted">(${esc(m.course)})</span>` : ''}</div></div>
+      <div class="box"><div class="label">标签</div><div>${tags}</div></div>
+      <div class="box"><div class="label">错误原因</div><div>${esc(m.reason || '（未填写）')}</div></div>
+      <div class="box"><div class="label">复习重点 / 笔记</div><div>${esc(m.note || '（未填写）')}</div></div>
+      <div class="box"><div class="label">复习状态</div><div>${esc(m.status)} · 下次复习 ${esc(m.next_review)} · 已复习 ${m.review_count} 次</div></div>
+      ${m.section_id ? `<div class="box"><div class="label">关联题解章节</div><button class="ghost" id="mi-open-section">打开 #${m.section_id}</button></div>` : ''}
+    `;
+    const btn = $('#mi-open-section');
+    if (btn) btn.onclick = () => openSection(m.section_id);
+    $('#mi-detail-dialog').showModal();
+  } catch (e) { alert(e.message); }
+}
 $('#mi-refresh').onclick = loadMistakes;
 $('#mi-view').onchange = loadMistakes;
 $('#mi-add-btn').onclick = () => $('#mi-dialog').showModal();
@@ -844,9 +1271,10 @@ $('#mi-save').onclick = async () => {
   if (!problem) { alert('题目标识不能为空'); return; }
   await api('/api/mistakes', {method: 'POST', headers: {'Content-Type': 'application/json'},
     body: JSON.stringify({problem, course: $('#mi-course').value,
-      tags: $('#mi-tags').value, reason: $('#mi-reason').value, note: $('#mi-note').value})});
+      tags: $('#mi-tags').value, reason: $('#mi-reason').value, note: $('#mi-note').value,
+      link: $('#mi-link').value})});
   $('#mi-dialog').close();
-  ['#mi-problem', '#mi-tags', '#mi-reason', '#mi-note'].forEach(s => $(s).value = '');
+  ['#mi-problem', '#mi-link', '#mi-tags', '#mi-reason', '#mi-note'].forEach(s => $(s).value = '');
   loadMistakes();
 };
 
@@ -871,6 +1299,213 @@ async function loadStats() {
   $('#stat-courses').innerHTML = courseRows.length ? courseRows.map(([c, v]) =>
     `<p>${esc(c)}：已掌握 ${v.mastered} / ${v.total}</p>`).join('') : '<p class="muted">（无）</p>';
 }
+
+/* ---- admin ---- */
+let adminData = null;
+let adminView = 'knowledge';
+let adminUsers = [];
+let adminUserRoleFilter = 'all';
+async function loadAdmin() {
+  if (!permissions.can_manage_courses && !permissions.can_view_student_logs) return;
+  showAdminView(adminView);
+  if (permissions.can_manage_courses) await loadAdminCourses();
+  if (permissions.can_manage_users) await loadAdminUsers();
+  if (permissions.can_view_student_logs) await loadAdminLogs();
+}
+function showAdminView(view) {
+  if (view === 'members' && !permissions.can_manage_users) view = 'knowledge';
+  adminView = view;
+  document.querySelectorAll('.admin-tabs button').forEach(b =>
+    b.classList.toggle('active', b.dataset.adminView === view));
+  document.querySelectorAll('.admin-panel').forEach(p => p.classList.remove('active'));
+  $(`#admin-view-${view}`).classList.add('active');
+  const titles = {
+    knowledge: ['知识库管理', '维护课程资料与检索范围'],
+    members: ['课程成员管理', '高中与大学的计算机基础课程衔接'],
+    logs: ['学生行为日志', '查看对话、检索、知识库和学习行为']
+  };
+  $('#admin-title').textContent = titles[view][0];
+  $('#admin-subtitle').textContent = titles[view][1];
+}
+async function loadAdminUsers() {
+  const d = await api('/api/admin/users');
+  adminUsers = d.users;
+  renderAdminUsers();
+}
+function renderAdminUsers() {
+  const roleLabel = {all: '全部成员', teacher: '教师', assistant: '助教', student: '学生'};
+  const d = {users: adminUsers};
+  const students = d.users.filter(u => u.role === 'student').length;
+  const assistants = d.users.filter(u => u.role === 'assistant').length;
+  const teachers = d.users.filter(u => u.role === 'teacher').length;
+  $('#admin-member-stats').innerHTML = [
+    ['当前列表', d.users.length, '成员'],
+    ['学生', students, '已加入课程'],
+    ['助教', assistants, `教师 ${teachers} 人`],
+  ].map((x, i) => `<div class="admin-stat ${i === 0 ? 'hot' : ''}">
+    <div class="label">${x[0]}</div><div class="num">${x[1]}</div><div class="muted">${x[2]}</div></div>`).join('');
+  document.querySelectorAll('#admin-user-filter button').forEach(b =>
+    b.classList.toggle('active', b.dataset.role === adminUserRoleFilter));
+  const rows = adminUserRoleFilter === 'all'
+    ? d.users
+    : d.users.filter(u => u.role === adminUserRoleFilter);
+  $('#admin-users-total').textContent = `显示 ${rows.length} 条 / 共 ${d.users.length} 条`;
+  $('#admin-users-filter-label').textContent = roleLabel[adminUserRoleFilter] || '全部成员';
+  const tbody = $('#admin-users tbody');
+  tbody.innerHTML = rows.length ? rows.map(u => `
+    <tr><td>${esc(u.student_id || u.name)}</td>
+      <td><strong>${esc(u.display_name || u.name)}</strong><div class="muted">${esc(u.name)}</div></td>
+      <td>${esc(u.department || '-')}</td>
+      <td>${roleSelect(u.name, u.role)}</td>
+      <td class="muted">${esc(u.created || '-')}</td>
+      <td><div class="actions">
+        ${u.role === 'student' ? `<button class="ghost" data-act="promote" data-user="${esc(u.name)}">设为助教</button>` : ''}
+        <button class="ghost" data-act="reset-key" data-user="${esc(u.name)}">重置 key</button>
+        <button class="ghost" data-act="delete-user" data-user="${esc(u.name)}">删除</button>
+      </div></td></tr>`).join('')
+    : '<tr><td colspan="6" class="muted">当前筛选下没有成员</td></tr>';
+  tbody.querySelectorAll('select[data-user]').forEach(sel => sel.onchange = async () => {
+    await api(`/api/admin/users/${encodeURIComponent(sel.dataset.user)}`, {method: 'PATCH',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: sel.value})});
+    await loadAdminUsers();
+  });
+  tbody.querySelectorAll('button').forEach(b => b.onclick = async () => {
+    const name = b.dataset.user;
+    if (b.dataset.act === 'promote') {
+      await api(`/api/admin/users/${encodeURIComponent(name)}`, {method: 'PATCH',
+        headers: {'Content-Type': 'application/json'}, body: JSON.stringify({role: 'assistant'})});
+    } else if (b.dataset.act === 'reset-key') {
+      if (!confirm(`重置 ${name} 的登录 key？旧 key 会立即失效。`)) return;
+      const d = await api(`/api/admin/users/${encodeURIComponent(name)}/reset`, {method: 'POST'});
+      $('#admin-user-key').textContent = `${d.user.name} 的新 key：${d.key}`;
+    } else if (b.dataset.act === 'delete-user') {
+      if (!confirm(`删除成员 ${name}？`)) return;
+      await api(`/api/admin/users/${encodeURIComponent(name)}`, {method: 'DELETE'});
+    }
+    await loadAdminUsers();
+  });
+}
+function roleSelect(name, role) {
+  return `<select data-user="${esc(name)}">
+    ${['teacher', 'assistant', 'student'].map(r =>
+      `<option value="${r}" ${r === role ? 'selected' : ''}>${{teacher:'教师', assistant:'助教', student:'学生'}[r]}</option>`).join('')}
+  </select>`;
+}
+$('#admin-user-add').onclick = async () => {
+  const name = $('#admin-user-name').value.trim();
+  const role = $('#admin-user-role').value;
+  if (!name) { alert('用户名不能为空'); return; }
+  const student_id = /^\d+$/.test(name) ? name : '';
+  const d = await api('/api/admin/users', {method: 'POST', headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({name, role, student_id,
+      display_name: $('#admin-display-name').value.trim(),
+      department: $('#admin-department').value.trim()})});
+  $('#admin-user-key').textContent = `新用户 ${d.user.name} 的 key：${d.key}`;
+  $('#admin-user-name').value = '';
+  $('#admin-display-name').value = '';
+  $('#admin-department').value = '';
+  await loadAdminUsers();
+};
+$('#admin-import-open').onclick = () => {
+  $('#admin-import-result').textContent = '';
+  $('#admin-import-dialog').showModal();
+  setTimeout(() => $('#admin-import-text').focus(), 0);
+};
+$('#admin-import-save').onclick = async () => {
+  const text = $('#admin-import-text').value.trim();
+  if (!text) { $('#admin-import-result').textContent = '请输入学生名单'; return; }
+  try {
+    const d = await api('/api/admin/users/import', {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({text})});
+    $('#admin-import-result').textContent = `已导入 ${d.imported.length} 名学生。登录 key 已生成，可在成员列表中重置。`;
+    $('#admin-user-key').textContent = d.imported.map(x => `${x.student_id} ${x.display_name}: ${x.key}`).join('；');
+    $('#admin-import-text').value = '';
+    $('#admin-import-dialog').close();
+    await loadAdminUsers();
+  } catch (e) {
+    $('#admin-import-result').textContent = e.message;
+  }
+};
+$('#admin-export-members').onclick = async () => {
+  try {
+    const headers = authKey ? {Authorization: `Bearer ${authKey}`} : {};
+    const r = await fetch('/api/admin/users/export', {headers});
+    if (!r.ok) {
+      const data = await r.json().catch(() => ({}));
+      throw new Error(data.error || `HTTP ${r.status}`);
+    }
+    const blob = await r.blob();
+    const a = document.createElement('a');
+    a.href = URL.createObjectURL(blob);
+    a.download = 'members.csv';
+    a.click();
+    URL.revokeObjectURL(a.href);
+  } catch (e) { alert(e.message); }
+};
+async function loadAdminCourses() {
+  const d = await api('/api/admin/courses');
+  adminData = d;
+  const totalResources = d.resources.length;
+  const enabled = d.courses.reduce((n, c) => n + c.resources.length, 0);
+  const courseware = d.resources.filter(r => r.kind === 'courseware').length;
+  $('#admin-course-stats').innerHTML = [
+    ['课程', d.courses.length, '当前可管理'],
+    ['已启用资源', enabled, `共 ${totalResources} 个资源`],
+    ['课件仓库', courseware, '课程资料来源'],
+  ].map((x, i) => `<div class="admin-stat ${i === 0 ? 'hot' : ''}">
+    <div class="label">${x[0]}</div><div class="num">${x[1]}</div><div class="muted">${x[2]}</div></div>`).join('');
+  $('#admin-courses').innerHTML = d.courses.map(c => {
+    const rows = d.resources.filter(r => r.course === c.course).map(r => {
+      const checked = c.resources.includes(r.name) ? 'checked' : '';
+      const kind = r.kind === 'courseware' ? '课件' : '题解';
+      const state = checked ? '<span class="badge on">已启用</span>' : '<span class="badge off">停用</span>';
+      return `<tr>
+        <td><strong>${esc(r.title)}</strong><div class="muted">${esc(r.name)}</div></td>
+        <td>${kind}</td>
+        <td>${state}</td>
+        <td><input type="checkbox" data-course="${esc(c.course)}" value="${esc(r.name)}" ${checked}></td>
+      </tr>`;
+    }).join('');
+    return `<div class="card">
+      <div class="toolbar">
+        <div class="left"><strong>${esc(c.course)}</strong><span class="badge">${c.resources.length} 个资源</span></div>
+        <div class="right"><span class="muted">${c.updated ? `上次更新：${esc(c.updated)} / ${esc(c.updated_by)}` : '使用默认配置'}</span>
+          <button class="primary" data-course-save="${esc(c.course)}">保存配置</button></div>
+      </div>
+      <div class="admin-table"><table><thead><tr><th>资源</th><th>类型</th><th>状态</th><th>启用</th></tr></thead><tbody>${rows}</tbody></table></div>
+    </div>`;
+  }).join('');
+  $('#admin-courses').querySelectorAll('button[data-course-save]').forEach(b => b.onclick = async () => {
+    const course = b.dataset.courseSave;
+    const resources = [...document.querySelectorAll(`input[data-course="${CSS.escape(course)}"]:checked`)].map(x => x.value);
+    await api(`/api/admin/courses/${encodeURIComponent(course)}`, {method: 'POST',
+      headers: {'Content-Type': 'application/json'}, body: JSON.stringify({resources})});
+    await loadAdminCourses();
+  });
+}
+async function loadAdminLogs() {
+  const user = $('#admin-log-user').value.trim();
+  const action = $('#admin-log-action').value;
+  const qs = new URLSearchParams({limit: '200'});
+  if (user) qs.set('user', user);
+  if (action) qs.set('action', action);
+  const d = await api(`/api/admin/logs?${qs}`);
+  const tbody = $('#admin-logs tbody');
+  tbody.innerHTML = d.events.length ? d.events.map(e => `
+    <tr><td class="muted">${esc(e.ts)}</td><td>${esc(e.user)}</td><td>${esc(e.role)}</td>
+      <td>${esc(e.action)}</td><td style="word-break:break-all">${esc(JSON.stringify(e.detail))}</td></tr>`).join('')
+    : '<tr><td colspan="5" class="muted">暂无日志</td></tr>';
+}
+$('#admin-log-refresh').onclick = loadAdminLogs;
+$('#admin-log-user').addEventListener('keydown', e => { if (e.key === 'Enter') loadAdminLogs(); });
+$('#admin-log-action').onchange = loadAdminLogs;
+$('#admin-refresh').onclick = loadAdmin;
+document.querySelectorAll('#admin-user-filter button').forEach(b => b.onclick = () => {
+  adminUserRoleFilter = b.dataset.role || 'all';
+  renderAdminUsers();
+});
+document.querySelectorAll('.admin-tabs button').forEach(b => b.onclick = () => showAdminView(b.dataset.adminView));
+document.querySelectorAll('[data-admin-jump]').forEach(el => el.onclick = () => showAdminView(el.dataset.adminJump));
 </script>
 </body>
 </html>

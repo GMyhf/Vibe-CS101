@@ -8,6 +8,7 @@ Shadow Account 从交易日志里找出"你在哪里丢钱"；错题本从做题
 from __future__ import annotations
 
 import sqlite3
+import re
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta
 from pathlib import Path
@@ -28,6 +29,8 @@ def user_db(user: str | None) -> Path:
 
 # 复习间隔（天）：每次“记住了”前进一档，全部通过后 status → mastered
 INTERVALS = [1, 3, 7, 14, 30]
+_OPENJUDGE_PROBLEM = re.compile(r"\b(?:OpenJudge|OJ)\s*(?:[A-Za-z]\s*)?0*(\d{4,6})\b", re.IGNORECASE)
+_TAG_SEP = re.compile(r"[,，、;；\s]+")
 
 SCHEMA = """
 CREATE TABLE IF NOT EXISTS mistakes (
@@ -38,6 +41,7 @@ CREATE TABLE IF NOT EXISTS mistakes (
     tags TEXT NOT NULL DEFAULT '',  -- 逗号分隔：dp,单调栈
     reason TEXT NOT NULL DEFAULT '',-- 错误原因
     note TEXT NOT NULL DEFAULT '',  -- 笔记/正确思路
+    link TEXT NOT NULL DEFAULT '',  -- 原题链接（可选）
     section_id INTEGER,             -- 关联的题解章节（可选）
     status TEXT NOT NULL DEFAULT 'active',  -- active | mastered
     interval_idx INTEGER NOT NULL DEFAULT 0,
@@ -62,6 +66,7 @@ class Mistake:
     tags: str
     reason: str
     note: str
+    link: str
     section_id: int | None
     status: str
     interval_idx: int
@@ -77,6 +82,9 @@ def _connect(db_path: Path | None = None) -> sqlite3.Connection:
     db_path.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(db_path)
     conn.executescript(SCHEMA)
+    cols = {row[1] for row in conn.execute("PRAGMA table_info(mistakes)").fetchall()}
+    if "link" not in cols:
+        conn.execute("ALTER TABLE mistakes ADD COLUMN link TEXT NOT NULL DEFAULT ''")
     return conn
 
 
@@ -84,7 +92,21 @@ def _row_to_mistake(row: tuple) -> Mistake:
     return Mistake(*row)
 
 
-_COLS = "id, created, problem, course, tags, reason, note, section_id, status, interval_idx, next_review, review_count"
+def _normalize_tags(tags: str) -> str:
+    return ",".join(t for t in _TAG_SEP.split(tags.strip()) if t)
+
+
+def _infer_problem_link(problem: str, link: str) -> str:
+    link = link.strip()
+    if link:
+        return link
+    match = _OPENJUDGE_PROBLEM.search(problem)
+    if not match:
+        return ""
+    return f"http://cs101.openjudge.cn/practice/{int(match.group(1)):05d}/"
+
+
+_COLS = "id, created, problem, course, tags, reason, note, link, section_id, status, interval_idx, next_review, review_count"
 
 
 def add_mistake(
@@ -93,20 +115,24 @@ def add_mistake(
     tags: str = "",
     reason: str = "",
     note: str = "",
+    link: str = "",
     section_id: int | None = None,
     db_path: Path | None = None,
 ) -> Mistake:
     db_path = db_path or JOURNAL_DB
-    if not problem.strip():
+    problem = problem.strip()
+    if not problem:
         raise ValueError("problem 不能为空")
+    tags = _normalize_tags(tags)
+    link = _infer_problem_link(problem, link)
     now = datetime.now().isoformat(timespec="seconds")
     next_review = (date.today() + timedelta(days=INTERVALS[0])).isoformat()
     conn = _connect(db_path)
     with conn:
         cur = conn.execute(
-            "INSERT INTO mistakes (created, problem, course, tags, reason, note, section_id, next_review)"
-            " VALUES (?,?,?,?,?,?,?,?)",
-            (now, problem.strip(), course, tags, reason, note, section_id, next_review),
+            "INSERT INTO mistakes (created, problem, course, tags, reason, note, link, section_id, next_review)"
+            " VALUES (?,?,?,?,?,?,?,?,?)",
+            (now, problem, course, tags, reason, note, link, section_id, next_review),
         )
         row = conn.execute(f"SELECT {_COLS} FROM mistakes WHERE id=?", (cur.lastrowid,)).fetchone()
     conn.close()
