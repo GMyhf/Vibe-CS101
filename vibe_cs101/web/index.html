@@ -884,8 +884,12 @@ function renderTable(lines) {
   return `<table><thead><tr>${head.map(c => `<th>${inlineMd(c)}</th>`).join('')}</tr></thead>` +
     `<tbody>${rows.map(r => `<tr>${r.map(c => `<td>${inlineMd(c)}</td>`).join('')}</tr>`).join('')}</tbody></table>`;
 }
+function normalizeMarkdownFences(text) {
+  return String(text || '')
+    .replace(/([^\n])(```\s*[A-Za-z0-9_+-]*\s*(?:\n|$))/g, '$1\n$2');
+}
 function mdLite(text) {
-  const lines = text.replace(/\r\n/g, '\n').split('\n');
+  const lines = normalizeMarkdownFences(text).replace(/\r\n/g, '\n').split('\n');
   const out = [];
   let para = [];
   let list = null;
