@@ -3,6 +3,7 @@ import tempfile
 import threading
 import unittest
 import urllib.request
+from io import StringIO
 from http.server import ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import quote
@@ -618,6 +619,28 @@ class ServerTests(unittest.TestCase):
         with patch("vibe_cs101.server.load_auth_keys", return_value={}):
             with self.assertRaises(SystemExit):
                 server.serve(host="0.0.0.0", port=0)
+
+    def test_remote_serve_warns_to_enable_https(self):
+        class FakeHTTPServer:
+            def __init__(self, server_address, handler_class):
+                self.server_address = server_address
+                self.handler_class = handler_class
+                self.socket = object()
+
+            def serve_forever(self):
+                return None
+
+            def server_close(self):
+                return None
+
+        out = StringIO()
+        with patch("vibe_cs101.server.load_auth_keys", return_value={"alice": "secret"}), \
+             patch("vibe_cs101.server.ThreadingHTTPServer", FakeHTTPServer), \
+             patch("sys.stdout", out):
+            server.serve(host="0.0.0.0", port=8101)
+
+        self.assertIn("通过 --tls-cert/--tls-key 或反向代理", out.getvalue())
+        self.assertIn("启用 HTTPS", out.getvalue())
 
 
 if __name__ == "__main__":

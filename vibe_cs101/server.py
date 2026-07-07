@@ -1279,7 +1279,7 @@ def serve(
             "否则请使用默认的 127.0.0.1 仅本机访问。"
         )
     if not _is_loopback(host) and not tls_cert:
-        print("⚠️  远程访问未启用 HTTPS：建议加 --tls-cert/--tls-key，或置于反向代理（Caddy/Nginx）之后。")
+        print("⚠️  远程访问未启用 HTTPS：建议通过 --tls-cert/--tls-key 或反向代理（Caddy/Nginx）启用 HTTPS。")
 
     httpd = ThreadingHTTPServer((host, port), Handler)
     scheme = "http"
