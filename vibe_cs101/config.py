@@ -63,6 +63,7 @@ class LocalSource:
     title: str
     course: str
     kind: str = "courseware"
+    url: str = ""
 
 
 # 题解来源（上游长 Markdown 文件）
@@ -118,12 +119,14 @@ LOCAL_SOURCES: list[LocalSource] = [
         path=WORKSPACE_DIR / "2025fall-cs101",
         title="2025 秋季 cs101 计算概论B 课件",
         course="cs101",
+        url="https://github.com/GMyhf/2025fall-cs101.git",
     ),
     LocalSource(
         name="2026spring-cs201",
         path=WORKSPACE_DIR / "2026spring-cs201",
         title="2026 春季 cs201 数据结构与算法B 课件",
         course="cs201",
+        url="https://github.com/GMyhf/2026spring-cs201.git",
     ),
 ]
 
