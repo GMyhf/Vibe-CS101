@@ -11,6 +11,7 @@ from .config import DB_PATH
 from .indexer import build_any_match_query, build_match_query, connect
 
 _UNSPACE_CJK = re.compile(r"(?<=[㐀-䶿一-鿿豈-﫿\[\]…]) +(?=[㐀-䶿一-鿿豈-﫿\[\]…])")
+MAX_SEARCH_RESULTS = 50
 
 
 @dataclass(frozen=True)
@@ -37,6 +38,10 @@ def search(
     sources: list[str] | tuple[str, ...] | set[str] | None = None,
     db_path: Path = DB_PATH,
 ) -> list[Hit]:
+    limit = int(limit)
+    if limit <= 0:
+        return []
+    limit = min(limit, MAX_SEARCH_RESULTS)
     match = build_match_query(query)
     if not match:
         return []

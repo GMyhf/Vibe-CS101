@@ -34,7 +34,12 @@ TOOL_SCHEMAS = [
                         "description": "可选，限定课程",
                     },
                     "source": {"type": "string", "description": "可选，限定来源名（见 list_sources）"},
-                    "limit": {"type": "integer", "description": "返回条数，默认 8"},
+                    "limit": {
+                        "type": "integer",
+                        "minimum": 1,
+                        "maximum": store.MAX_SEARCH_RESULTS,
+                        "description": "返回条数，默认 8",
+                    },
                 },
                 "required": ["query"],
             },
@@ -126,10 +131,16 @@ TOOL_SCHEMAS = [
 def _tool_search(args: dict, context: dict) -> str:
     course = args.get("course") or None
     source = args.get("source") or None
+    raw_limit = args.get("limit", 8)
+    if type(raw_limit) is not int:
+        raise ValueError("limit 必须是整数")
+    limit = raw_limit
+    if not 1 <= limit <= store.MAX_SEARCH_RESULTS:
+        raise ValueError(f"limit 必须在 1 到 {store.MAX_SEARCH_RESULTS} 之间")
     enabled_sources = None if source else courses.enabled_resources(course)
     hits = store.search(
         query=str(args.get("query", "")),
-        limit=int(args.get("limit", 8) or 8),
+        limit=limit,
         course=course,
         source=source,
         sources=enabled_sources,

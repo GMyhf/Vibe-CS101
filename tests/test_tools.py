@@ -4,11 +4,28 @@ import unittest
 from pathlib import Path
 from unittest.mock import patch
 
-from vibe_cs101 import journal
-from vibe_cs101.tools import MAX_SECTION_CHARS, run_tool
+from vibe_cs101 import journal, store
+from vibe_cs101.tools import MAX_SECTION_CHARS, TOOL_SCHEMAS, run_tool
 
 
 class ToolContextTests(unittest.TestCase):
+    def test_search_limit_is_declared_and_enforced(self):
+        search_schema = next(
+            item["function"] for item in TOOL_SCHEMAS
+            if item["function"]["name"] == "search_materials"
+        )
+        limit_schema = search_schema["parameters"]["properties"]["limit"]
+        self.assertEqual(limit_schema["minimum"], 1)
+        self.assertEqual(limit_schema["maximum"], store.MAX_SEARCH_RESULTS)
+
+        with patch("vibe_cs101.tools.store.search") as search:
+            for limit in (-1, 0, store.MAX_SEARCH_RESULTS + 1, 1.9, True, "2", None):
+                result = json.loads(
+                    run_tool("search_materials", json.dumps({"query": "dp", "limit": limit}))
+                )
+                self.assertIn("limit 必须", result["error"])
+            search.assert_not_called()
+
     def test_record_mistake_uses_context_journal_db(self):
         with tempfile.TemporaryDirectory() as tmp:
             db = Path(tmp) / "alice.db"

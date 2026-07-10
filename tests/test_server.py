@@ -1,4 +1,5 @@
 import json
+import os
 import tempfile
 import threading
 import unittest
@@ -112,6 +113,50 @@ class ServerTests(unittest.TestCase):
         self.assertEqual(data["sections"][0]["id"], 1)
         self.assertEqual(data["content"], "# DP\n\n动态规划正文")
         self.assertEqual(data["section_count"], 2)
+
+    def test_search_limit_validation(self):
+        with patch("vibe_cs101.server.store.search", return_value=[]) as search:
+            invalid = ("-1", "0", str(store.MAX_SEARCH_RESULTS + 1), "not-a-number")
+            for value in invalid:
+                status, data = self.request(f"/api/search?q=dp&limit={value}")
+                self.assertEqual(status, 400)
+                self.assertIn("limit 必须", data["error"])
+            search.assert_not_called()
+
+            status, _ = self.request("/api/search?q=dp")
+            self.assertEqual(status, 200)
+            self.assertEqual(search.call_args.kwargs["limit"], 10)
+
+            status, _ = self.request("/api/search?q=dp&limit=1")
+            self.assertEqual(status, 200)
+            self.assertEqual(search.call_args.kwargs["limit"], 1)
+
+            status, _ = self.request(
+                f"/api/search?q=dp&limit={store.MAX_SEARCH_RESULTS}"
+            )
+            self.assertEqual(status, 200)
+            self.assertEqual(search.call_args.kwargs["limit"], store.MAX_SEARCH_RESULTS)
+
+    def test_solution_search_limit_validation(self):
+        with patch("vibe_cs101.server._search_solutions", return_value=[]) as search:
+            invalid = ("-1", "0", str(server.SOL101_SEARCH_MAX_RESULTS + 1), "not-a-number")
+            for value in invalid:
+                status, data = self.request(f"/api/solutions/search?q=dp&limit={value}")
+                self.assertEqual(status, 400)
+                self.assertIn("limit 必须", data["error"])
+            search.assert_not_called()
+
+            for path, expected in (
+                ("/api/solutions/search?q=dp", 30),
+                ("/api/solutions/search?q=dp&limit=1", 1),
+                (
+                    f"/api/solutions/search?q=dp&limit={server.SOL101_SEARCH_MAX_RESULTS}",
+                    server.SOL101_SEARCH_MAX_RESULTS,
+                ),
+            ):
+                status, _ = self.request(path)
+                self.assertEqual(status, 200)
+                self.assertEqual(search.call_args.args[2], expected)
 
     def test_mistake_crud_and_review_flow(self):
         status, data = self.request(
@@ -571,6 +616,62 @@ class ServerTests(unittest.TestCase):
                 self.assertEqual(status, 404)
                 status, _ = self.request("/api/solutions/list?set=missing", key=student_key)
                 self.assertEqual(status, 404)
+
+    def test_solution_search_cache_reuses_reads_and_invalidates_changes(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            docs = Path(tmp)
+            (docs / "cf").mkdir()
+            first = docs / "cf" / "1a.md"
+            second = docs / "cf" / "2a.md"
+            first.write_text("# First\n\nceiling division", encoding="utf-8")
+            second.write_text("# Second\n\ntrack scores", encoding="utf-8")
+
+            server._cached_solution_record.cache_clear()
+            try:
+                with patch("vibe_cs101.server.SOL101_DOCS_DIR", docs), \
+                     patch(
+                         "vibe_cs101.server._read_solution_record",
+                         wraps=server._read_solution_record,
+                     ) as read_record, \
+                     patch(
+                         "vibe_cs101.server._sol101_set_info",
+                         wraps=server._sol101_set_info,
+                     ) as set_info:
+                    self.assertEqual(server._search_solutions("", "cf", -1), [])
+                    read_record.assert_not_called()
+
+                    self.assertEqual(
+                        [item["title"] for item in server._search_solutions("ceiling", "cf", 30)],
+                        ["First"],
+                    )
+                    self.assertEqual(read_record.call_count, 2)
+                    self.assertEqual(set_info.call_count, 1)
+
+                    self.assertEqual(
+                        [item["title"] for item in server._search_solutions("scores", "cf", 30)],
+                        ["Second"],
+                    )
+                    self.assertEqual(read_record.call_count, 2)
+
+                    original_stat = second.stat()
+                    replacement = docs / "replacement.tmp"
+                    replacement.write_text("# Second\n\nunique token", encoding="utf-8")
+                    os.utime(
+                        replacement,
+                        ns=(original_stat.st_atime_ns, original_stat.st_mtime_ns),
+                    )
+                    replacement.replace(second)
+                    replaced_stat = second.stat()
+                    self.assertEqual(replaced_stat.st_size, original_stat.st_size)
+                    self.assertEqual(replaced_stat.st_mtime_ns, original_stat.st_mtime_ns)
+                    self.assertNotEqual(replaced_stat.st_ino, original_stat.st_ino)
+                    self.assertEqual(
+                        [item["title"] for item in server._search_solutions("unique token", "cf", 30)],
+                        ["Second"],
+                    )
+                    self.assertEqual(read_record.call_count, 3)
+            finally:
+                server._cached_solution_record.cache_clear()
 
     def test_image_proxy_serves_without_auth_and_rejects_private_hosts(self):
         server.AUTH_KEYS = {"teacher": "secret"}

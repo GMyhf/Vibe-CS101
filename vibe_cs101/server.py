@@ -53,12 +53,14 @@ import io
 import ipaddress
 import json
 import re
+import socket
 import ssl
 import threading
-import uuid
 import urllib.error
 import urllib.request
-import socket
+import uuid
+from dataclasses import dataclass
+from functools import lru_cache
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import parse_qs, quote, urlparse
@@ -97,6 +99,7 @@ SOL101_SET_META = {
 }
 SOL101_SKIP_DIRS = {".vitepress", "public", "__pycache__"}
 SOL101_MAX_FILE = 2_000_000
+SOL101_SEARCH_MAX_RESULTS = 80
 IMAGE_CACHE_DIR = DATA_DIR / "image_cache"
 IMAGE_PROXY_MAX_BYTES = 8_000_000
 IMAGE_PROXY_TIMEOUT = 8
@@ -183,9 +186,60 @@ def _solution_title_and_meta(text: str, fallback: str) -> tuple[str, str]:
     return title, meta
 
 
+@dataclass(frozen=True)
+class _SolutionRecord:
+    text: str
+    text_lower: str
+    title: str
+    meta: str
+
+
+def _read_solution_record(file: Path) -> _SolutionRecord:
+    text = file.read_text(encoding="utf-8", errors="replace")
+    title, meta = _solution_title_and_meta(text, file.stem)
+    return _SolutionRecord(text, text.lower(), title, meta)
+
+
+@lru_cache(maxsize=2048)
+def _cached_solution_record(
+    path: str,
+    device: int,
+    inode: int,
+    mtime_ns: int,
+    ctime_ns: int,
+    size: int,
+) -> _SolutionRecord:
+    """Cache parsed Markdown while file metadata remains unchanged."""
+    del device, inode, mtime_ns, ctime_ns, size  # These values participate in the cache key.
+    return _read_solution_record(Path(path))
+
+
+def _solution_record(file: Path) -> _SolutionRecord:
+    stat = file.stat()
+    return _cached_solution_record(
+        str(file),
+        stat.st_dev,
+        stat.st_ino,
+        stat.st_mtime_ns,
+        stat.st_ctime_ns,
+        stat.st_size,
+    )
+
+
 def _query_terms(query: str) -> list[str]:
     terms = re.findall(r"[0-9A-Za-z_.+#-]+|[\u3400-\u9fff]+", query.lower())
     return [t for t in terms if len(t) >= 1]
+
+
+def _query_limit(q: dict, default: int, maximum: int) -> int:
+    raw = q.get("limit", [str(default)])[0]
+    try:
+        limit = int(raw)
+    except (TypeError, ValueError) as exc:
+        raise ValueError(f"limit 必须是 1 到 {maximum} 的整数") from exc
+    if not 1 <= limit <= maximum:
+        raise ValueError(f"limit 必须是 1 到 {maximum} 的整数")
+    return limit
 
 
 def _solution_sidebar_order(set_name: str) -> dict[str, int]:
@@ -222,37 +276,59 @@ def _solution_snippet(text: str, terms: list[str], max_len: int = 180) -> str:
     return prefix + compact[start:end] + suffix
 
 
-def _solution_entry(set_name: str, file: Path, terms: list[str] | None = None) -> dict:
+def _solution_entry(
+    set_name: str,
+    file: Path,
+    terms: list[str] | None = None,
+    *,
+    set_info: dict | None = None,
+    record: _SolutionRecord | None = None,
+) -> dict:
     root = SOL101_DOCS_DIR / set_name
     rel = file.relative_to(root).as_posix()
-    text = file.read_text(encoding="utf-8", errors="replace")
-    title, meta = _solution_title_and_meta(text, file.stem)
-    set_info = _sol101_set_info(set_name)
+    record = record or _solution_record(file)
+    set_info = set_info or _sol101_set_info(set_name)
     return {
         "set": set_name,
         "set_title": set_info["title"],
         "badge": set_info["badge"],
         "course": set_info["course"],
         "path": rel,
-        "title": title,
-        "meta": meta,
-        "snippet": _solution_snippet(text, terms or []),
+        "title": record.title,
+        "meta": record.meta,
+        "snippet": _solution_snippet(record.text, terms or []),
     }
 
 
-def _list_solutions(set_name: str) -> list[dict]:
+def _solution_files(set_name: str) -> list[Path]:
     if set_name not in _sol101_set_order():
         return []
     root = SOL101_DOCS_DIR / set_name
     if not root.is_dir():
         return []
-    entries = [
-        _solution_entry(set_name, file, [])
-        for file in sorted(root.glob("*.md"))
-        if file.name != "index.md" and file.stat().st_size <= SOL101_MAX_FILE
-    ]
+    files = []
+    for file in root.glob("*.md"):
+        try:
+            if file.name != "index.md" and file.stat().st_size <= SOL101_MAX_FILE:
+                files.append(file)
+        except OSError:
+            continue
     order = _solution_sidebar_order(set_name)
-    entries.sort(key=lambda e: (order.get(e["path"], len(order) + 1), e["path"]))
+    files.sort(
+        key=lambda file: (
+            order.get(file.relative_to(root).as_posix(), len(order) + 1),
+            file.relative_to(root).as_posix(),
+        )
+    )
+    return files
+
+
+def _list_solutions(set_name: str) -> list[dict]:
+    set_info = _sol101_set_info(set_name)
+    entries = [
+        _solution_entry(set_name, file, [], set_info=set_info)
+        for file in _solution_files(set_name)
+    ]
     nav = [_solution_nav_item(entry) for entry in entries]
     for i, entry in enumerate(entries):
         entry["prev"] = nav[i - 1] if i > 0 else None
@@ -269,35 +345,61 @@ def _solution_nav_item(entry: dict) -> dict:
     }
 
 
-def _solution_neighbors(set_name: str, rel_path: str) -> tuple[dict | None, dict | None]:
-    entries = _list_solutions(set_name)
-    for i, entry in enumerate(entries):
-        if entry["path"] == rel_path:
-            prev_item = _solution_nav_item(entries[i - 1]) if i > 0 else None
-            next_item = _solution_nav_item(entries[i + 1]) if i + 1 < len(entries) else None
-            return prev_item, next_item
-    return None, None
+def _solution_file_nav(set_name: str, file: Path, set_info: dict) -> dict:
+    record = _solution_record(file)
+    return {
+        "set": set_name,
+        "set_title": set_info["title"],
+        "path": file.relative_to(SOL101_DOCS_DIR / set_name).as_posix(),
+        "title": record.title,
+    }
+
+
+def _solution_neighbors(
+    set_name: str,
+    rel_path: str,
+    set_info: dict | None = None,
+) -> tuple[dict | None, dict | None]:
+    root = SOL101_DOCS_DIR / set_name
+    files = _solution_files(set_name)
+    paths = [file.relative_to(root).as_posix() for file in files]
+    try:
+        index = paths.index(rel_path)
+    except ValueError:
+        return None, None
+    set_info = set_info or _sol101_set_info(set_name)
+    prev_item = _solution_file_nav(set_name, files[index - 1], set_info) if index > 0 else None
+    next_item = (
+        _solution_file_nav(set_name, files[index + 1], set_info)
+        if index + 1 < len(files)
+        else None
+    )
+    return prev_item, next_item
 
 
 def _search_solutions(query: str, set_name: str | None, limit: int) -> list[dict]:
+    limit = max(0, min(int(limit), SOL101_SEARCH_MAX_RESULTS))
+    if limit == 0:
+        return []
     terms = _query_terms(query)
-    sets = [set_name] if set_name else _sol101_set_order()
-    ranked: list[tuple[int, str, dict]] = []
+    set_order = _sol101_set_order()
+    sets = [set_name] if set_name else set_order
+    ranked: list[tuple] = []
     for name in sets:
-        if name not in _sol101_set_order():
+        if name not in set_order:
             continue
-        root = SOL101_DOCS_DIR / name
-        if not root.is_dir():
-            continue
-        for file in sorted(root.glob("*.md")):
-            if file.name == "index.md" or file.stat().st_size > SOL101_MAX_FILE:
+        set_info = _sol101_set_info(name)
+        for file in _solution_files(name):
+            try:
+                record = _solution_record(file)
+            except OSError:
                 continue
-            entry = _solution_entry(name, file, terms)
-            hay_title = entry["title"].lower()
-            hay_path = entry["path"].lower()
-            hay_meta = entry["meta"].lower()
+            rel_path = file.relative_to(SOL101_DOCS_DIR / name).as_posix()
+            hay_title = record.title.lower()
+            hay_path = rel_path.lower()
+            hay_meta = record.meta.lower()
             if terms:
-                text = file.read_text(encoding="utf-8", errors="replace").lower()
+                text = record.text_lower
                 if not all(t in text or t in hay_title or t in hay_path or t in hay_meta for t in terms):
                     continue
                 score = 0
@@ -308,9 +410,12 @@ def _search_solutions(query: str, set_name: str | None, limit: int) -> list[dict
                     score += min(text.count(term), 8)
             else:
                 score = 1
-            ranked.append((score, f"{name}/{entry['path']}", entry))
+            ranked.append((score, f"{name}/{rel_path}", name, file, set_info, record))
     ranked.sort(key=lambda x: (-x[0], x[1]))
-    return [entry for _score, _key, entry in ranked[:limit]]
+    return [
+        _solution_entry(name, file, terms, set_info=set_info, record=record)
+        for _score, _key, name, file, set_info, record in ranked[:limit]
+    ]
 
 
 def _library_roots() -> dict[str, tuple[str, Path]]:
@@ -759,10 +864,15 @@ class Handler(BaseHTTPRequestHandler):
                 query = q.get("q", [""])[0]
                 course = q.get("course", [None])[0] or None
                 source = q.get("source", [None])[0] or None
+                try:
+                    limit = _query_limit(q, 10, store.MAX_SEARCH_RESULTS)
+                except ValueError as exc:
+                    self._error(400, str(exc))
+                    return
                 enabled_sources = None if source else courses.enabled_resources(course)
                 hits = store.search(
                     query,
-                    limit=min(int(q.get("limit", ["10"])[0]), 50),
+                    limit=limit,
                     course=course,
                     source=source,
                     sources=enabled_sources,
@@ -878,7 +988,11 @@ class Handler(BaseHTTPRequestHandler):
             elif url.path == "/api/solutions/search":
                 query = q.get("q", [""])[0]
                 set_name = q.get("set", [None])[0] or None
-                limit = min(int(q.get("limit", ["30"])[0]), 80)
+                try:
+                    limit = _query_limit(q, 30, SOL101_SEARCH_MAX_RESULTS)
+                except ValueError as exc:
+                    self._error(400, str(exc))
+                    return
                 results = _search_solutions(query, set_name, limit)
                 _log_action(
                     user,
@@ -893,14 +1007,13 @@ class Handler(BaseHTTPRequestHandler):
                 if file is None:
                     self._error(404, "solution not found")
                     return
-                text = file.read_text(encoding="utf-8", errors="replace")
-                title, meta = _solution_title_and_meta(text, file.stem)
+                record = _solution_record(file)
                 set_info = _sol101_set_info(set_name)
-                prev_item, next_item = _solution_neighbors(set_name, rel_path)
+                prev_item, next_item = _solution_neighbors(set_name, rel_path, set_info)
                 _log_action(
                     user,
                     "solution_read",
-                    {"set": set_name, "path": rel_path, "title": title},
+                    {"set": set_name, "path": rel_path, "title": record.title},
                 )
                 self._json(
                     {
@@ -909,11 +1022,11 @@ class Handler(BaseHTTPRequestHandler):
                         "badge": set_info["badge"],
                         "course": set_info["course"],
                         "path": rel_path,
-                        "title": title,
-                        "meta": meta,
+                        "title": record.title,
+                        "meta": record.meta,
                         "prev": prev_item,
                         "next": next_item,
-                        "content": text,
+                        "content": record.text,
                     }
                 )
             elif url.path == "/api/sessions":

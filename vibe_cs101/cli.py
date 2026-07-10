@@ -15,6 +15,16 @@ BANNER = f"""\
 └─────────────────────────────────────────────┘"""
 
 
+def _search_limit(value: str) -> int:
+    try:
+        limit = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError("limit 必须是整数") from exc
+    if not 1 <= limit <= store.MAX_SEARCH_RESULTS:
+        raise argparse.ArgumentTypeError(f"limit 必须在 1 到 {store.MAX_SEARCH_RESULTS} 之间")
+    return limit
+
+
 def cmd_quickstart(_args: argparse.Namespace) -> int:
     """一条命令完成初始化：下载每周预构建的全文索引（含课件+题解）。"""
     from .fetch import INDEX_RELEASE_URL, download_prebuilt_index
@@ -255,7 +265,7 @@ def main(argv: list[str] | None = None) -> int:
     p.add_argument("query")
     p.add_argument("--course", choices=["cs101", "cs201"])
     p.add_argument("--source")
-    p.add_argument("--limit", type=int, default=8)
+    p.add_argument("--limit", type=_search_limit, default=8)
     p.set_defaults(fn=cmd_search)
 
     p = sub.add_parser("show", help="查看完整章节")

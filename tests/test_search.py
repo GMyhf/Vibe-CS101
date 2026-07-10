@@ -90,6 +90,28 @@ class SearchTests(unittest.TestCase):
         self.assertEqual(store.search("", db_path=self.db), [])
         self.assertEqual(store.search("   ", db_path=self.db), [])
 
+    def test_result_limit_has_a_hard_bound(self):
+        conn = connect(self.db)
+        with conn:
+            for i in range(store.MAX_SEARCH_RESULTS + 10):
+                title = f"bounded result {i}"
+                cur = conn.execute(
+                    "INSERT INTO sections (source, course, kind, file, title, content) VALUES (?,?,?,?,?,?)",
+                    ("test", "cs101", "courseware", f"{i}.md", title, title),
+                )
+                conn.execute(
+                    "INSERT INTO sections_fts (rowid, title_t, content_t) VALUES (?,?,?)",
+                    (cur.lastrowid, title, title),
+                )
+        conn.close()
+
+        self.assertEqual(store.search("bounded", limit=0, db_path=self.db), [])
+        self.assertEqual(store.search("bounded", limit=-1, db_path=self.db), [])
+        self.assertEqual(
+            len(store.search("bounded", limit=10_000, db_path=self.db)),
+            store.MAX_SEARCH_RESULTS,
+        )
+
 
 if __name__ == "__main__":
     unittest.main()
